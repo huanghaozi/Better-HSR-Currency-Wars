@@ -3,6 +3,5 @@ obj/
 .vs/
 *.user
 *.suo
-config.clean.json
-OCRRuntime/*
-!OCRRuntime/README.md
+config.json
+

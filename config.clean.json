@@ -1,0 +1,83 @@
+{
+  "WindowTitle": "崩坏",
+  "DebuffEnabled": true,
+  "DebuffMatchAny": true,
+  "TargetWords": [
+    "忍无可忍",
+    "第一位面强化",
+    "第二位面强化",
+    "第三位面强化"
+  ],
+  "BlockedEnabled": true,
+  "BlockedWords": [
+    "能量逃逸"
+  ],
+  "InvestmentEnabled": true,
+  "InvestmentTargets": [
+    "彩虹时代"
+  ],
+  "CheckInvestmentWhenBlocked": false,
+  "InGameStrategyTarget": "黑塔纪元",
+  "InGameInvestmentTarget": "彩虹时代",
+  "InGameStrategyTargets": [
+    "黑塔纪元",
+    "采购专员",
+    "采购专员金",
+    "采购专员银",
+    "采购专员彩"
+  ],
+  "InGameInvestmentTargets": [
+    "彩虹时代",
+    "头彩",
+    "银金彩",
+    "银·金·彩",
+    "人才下沉",
+    "火药味",
+    "燃血概念股",
+    "追击概念股",
+    "仙舟概念股",
+    "三星佩佩",
+    "粗心佩佩",
+    "英雄登场"
+  ],
+  "TargetWordHistory": [
+    "第三位面强化",
+    "第二位面强化",
+    "第一位面强化",
+    "忍无可忍"
+  ],
+  "BlockedWordHistory": [
+    "能量逃逸"
+  ],
+  "InvestmentWordHistory": [
+    "彩虹时代"
+  ],
+  "InGameStrategyHistory": [
+    "采购专员彩",
+    "采购专员银",
+    "采购专员金",
+    "采购专员",
+    "黑塔纪元"
+  ],
+  "InGameInvestmentHistory": [
+    "英雄登场",
+    "粗心佩佩",
+    "三星佩佩",
+    "仙舟概念股",
+    "追击概念股",
+    "燃血概念股",
+    "火药味",
+    "人才下沉",
+    "银·金·彩",
+    "银金彩",
+    "头彩",
+    "彩虹时代"
+  ],
+  "FuzzyScore": 85,
+  "BlockedFuzzyScore": 85,
+  "ButtonFuzzyScore": 78,
+  "InvestmentFuzzyScore": 88,
+  "StartDelaySeconds": 1,
+  "DebuffCheckDelaySeconds": 4,
+  "InvestmentIntervalSeconds": 0.2
+}
