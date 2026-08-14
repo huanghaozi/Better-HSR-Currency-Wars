@@ -20,6 +20,8 @@ public sealed class AutomationConfig
 
 	public string HiddenReleaseNotesVersion { get; set; } = "";
 
+	public string MirrorChyanCdk { get; set; } = "";
+
 	public bool DebuffEnabled { get; set; } = true;
 
 	public bool DebuffMatchAny { get; set; }

@@ -73,7 +73,7 @@ public partial class MainWindow : Window, IComponentConnector
 		"导航", "教学目录", "游戏工具"
 	};
 
-	private readonly ConfigStore _configStore = new ConfigStore(AppContext.BaseDirectory);
+	private readonly ConfigStore _configStore = new ConfigStore(App.ConfigDirectory);
 
 	private readonly WindowCaptureService _windowCapture = new WindowCaptureService();
 
@@ -128,9 +128,21 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private int _logLineCount;
 
+	private DesktopCloneWindow? _desktopCloneWindow;
+
+	private EventWaitHandle? _crossSessionStopEvent;
+
+	private RegisteredWaitHandle? _crossSessionStopWait;
+
 	public MainWindow()
 	{
 		InitializeComponent();
+		if (App.IsChildSessionInstance)
+		{
+			Title = "Better HSR-Currency Wars V13.1（桌面分身）";
+			DesktopCloneButton.IsEnabled = false;
+			DesktopCloneButton.Content = "当前位于桌面分身";
+		}
 		LoadConfigToUi();
 		InitializeFlowList();
 		AppendStartupNotice();
@@ -157,7 +169,75 @@ public partial class MainWindow : Window, IComponentConnector
 	private void MainWindow_Loaded(object sender, RoutedEventArgs e)
 	{
 		RegisterHotkeys();
+		InitializeCrossSessionStopSignal();
+		if (App.IsChildSessionInstance)
+		{
+			AppendLog("当前程序运行在 Windows 桌面分身中；截图、鼠标和键盘输入仅作用于该分身会话。");
+			SetStatus("状态：桌面分身内，未运行");
+			return;
+		}
 		base.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(ShowStartupNotices));
+		if (App.OpenDesktopCloneOnStartup)
+		{
+			base.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(OpenDesktopCloneWindow));
+		}
+	}
+
+	private void DesktopClone_Click(object sender, RoutedEventArgs e)
+	{
+		if (App.IsChildSessionInstance)
+		{
+			return;
+		}
+		if (!DesktopCloneWindow.IsAdministrator())
+		{
+			MessageBoxResult answer = MessageBox.Show(
+				this,
+				"创建 Windows 桌面分身和跨会话启动程序需要管理员权限。\n\n是否以管理员权限重新启动本工具并打开桌面分身？",
+				"桌面分身（测试）",
+				MessageBoxButton.YesNo,
+				MessageBoxImage.Information);
+			if (answer != MessageBoxResult.Yes)
+			{
+				return;
+			}
+			try
+			{
+				string executablePath = Environment.ProcessPath
+					?? throw new InvalidOperationException("无法取得当前程序路径。");
+				Process.Start(new ProcessStartInfo
+				{
+					FileName = executablePath,
+					Arguments = "--desktop-clone",
+					UseShellExecute = true,
+					Verb = "runas",
+					WorkingDirectory = AppContext.BaseDirectory
+				});
+				Application.Current.Shutdown();
+			}
+			catch (Exception ex)
+			{
+				MessageBox.Show(this, ex.GetBaseException().Message, "管理员启动失败", MessageBoxButton.OK, MessageBoxImage.Error);
+			}
+			return;
+		}
+		OpenDesktopCloneWindow();
+	}
+
+	private void OpenDesktopCloneWindow()
+	{
+		if (_desktopCloneWindow != null)
+		{
+			if (_desktopCloneWindow.WindowState == WindowState.Minimized)
+			{
+				_desktopCloneWindow.WindowState = WindowState.Normal;
+			}
+			_desktopCloneWindow.Activate();
+			return;
+		}
+		_desktopCloneWindow = new DesktopCloneWindow { Owner = this };
+		_desktopCloneWindow.Closed += (_, _) => _desktopCloneWindow = null;
+		_desktopCloneWindow.Show();
 	}
 
 	private void ShowStartupNotices()
@@ -185,6 +265,8 @@ public partial class MainWindow : Window, IComponentConnector
 		_gameLogOverlayTimer.Stop();
 		_gameLogOverlay.Close();
 		UnregisterHotkeys();
+		_crossSessionStopWait?.Unregister(null);
+		_crossSessionStopEvent?.Dispose();
 		_successAudioPlayer.Close();
 		if (_ocrService is IDisposable disposable)
 		{
@@ -594,7 +676,7 @@ public partial class MainWindow : Window, IComponentConnector
 	private async void StartLuochaPreset_Click(object sender, RoutedEventArgs e)
 	{
 		ShowLogPage();
-		await StartIndependentStrategyPresetAsync("本姑娘就是罗刹", InGameOpeningFlow.TargetStrategyAliases, InGameOpeningFlow.PrismInvestmentGateAliases);
+		await StartIndependentStrategyPresetAsync("黑塔纪元", InGameOpeningFlow.TargetStrategyAliases, InGameOpeningFlow.PrismInvestmentGateAliases);
 	}
 
 	private async void StartReincarnationPreset_Click(object sender, RoutedEventArgs e)
@@ -654,6 +736,7 @@ public partial class MainWindow : Window, IComponentConnector
 	private void StopAutomation_Click(object sender, RoutedEventArgs e)
 	{
 		StopAutomation();
+		SignalChildSessionStop();
 	}
 
 	private void TargetWordInputBox_KeyDown(object sender, KeyEventArgs e)
@@ -1553,6 +1636,8 @@ public partial class MainWindow : Window, IComponentConnector
 		RefreshGameWindowForIndependentStep();
 		await ClickRatioPointAsync(new RatioPoint(0.565, 0.91), "自动刷周常积分：固定确认", cancellationToken);
 		await DelayWithCancellationAsync(0.2, cancellationToken);
+		AppendLog("自动刷周常积分：固定确认完成，执行旧版蓝海二段点位 2 轮兜底。");
+		await ClickBlueOceanFollowupGuardAsync(cancellationToken);
 		await WaitForOpeningBoardReadyAsync("自动刷周常积分", InGameOpeningFlow.OpeningBoardPostDetectionWaitSeconds, cancellationToken);
 		await DeployOpeningCharactersAsync(cancellationToken);
 		await TryHandleGalaStarChoiceAsync(cancellationToken);
@@ -2117,7 +2202,7 @@ public partial class MainWindow : Window, IComponentConnector
 		while (DateTime.UtcNow < deadline)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.FullWindow, cancellationToken);
+			OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.BottomNextButtonRegion, cancellationToken);
 			lastText = scan.RawText;
 			OcrClickCandidate candidate = OcrClickResolver.FindBest(scan, aliases, _config.ButtonFuzzyScore);
 			if ((object)candidate != null)
@@ -2288,7 +2373,23 @@ public partial class MainWindow : Window, IComponentConnector
 		}
 		if (switchAttempts == 0)
 		{
-			AppendLog($"局内识别：{completedScans} 次固定图标扫描均未发现自动战斗关闭标识，本场未发送切换按键。");
+			AppendLog($"局内识别：{completedScans} 次固定图标扫描均未发现自动战斗关闭标识，为防止漏检导致手动战斗，固定补按 V 一次。");
+			AppendLog((await _clickService.PressKeyAsync("V", _gameWindow.Handle, cancellationToken)).Message);
+			await DelayWithCancellationAsync(InGameOpeningFlow.AutoBattleVerificationDelaySeconds, cancellationToken);
+			_gameWindow = _windowCapture.FindWindow(_config.WindowTitle);
+			CaptureRegion verificationRegion = new CaptureRegion("自动战斗关闭标识复检", InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.X, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Y, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Width, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Height);
+			BitmapSource verificationImage = _windowCapture.Capture(_gameWindow, verificationRegion);
+			AutoBattleDetectionResult verification = AutoBattleStateDetector.Detect(verificationImage);
+			if (verification.IsDisabled)
+			{
+				AppendLog($"局内识别：固定补按 V 后复检仍命中自动战斗关闭图标，相似度 {verification.Similarity:0.000}，再按 V 纠正为自动战斗。");
+				AppendLog((await _clickService.PressKeyAsync("V", _gameWindow.Handle, cancellationToken)).Message);
+				await DelayWithCancellationAsync(InGameOpeningFlow.AutoBattleVerificationDelaySeconds, cancellationToken);
+			}
+			else
+			{
+				AppendLog($"局内识别：固定补按 V 后未检测到自动战斗关闭图标，相似度 {verification.Similarity:0.000}，按自动战斗已开启继续。");
+			}
 			return;
 		}
 		AppendLog($"局内识别：自动战斗固定图标检测超时，共扫描 {completedScans} 次、按 V {switchAttempts} 次。");
@@ -2356,10 +2457,38 @@ public partial class MainWindow : Window, IComponentConnector
 	{
 		int battleStartCount = 0;
 		int continueChallengeCount = 0;
+		int focusedContinueMissCount = 0;
 		DateTime deadline = DateTime.UtcNow.AddSeconds(300.0);
 		while (DateTime.UtcNow < deadline)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			if (battleStartCount > continueChallengeCount && focusedContinueMissCount < 3)
+			{
+				OcrScanResult focusedScan = await CaptureAndOcrAsync(InGameOpeningFlow.ContinueChallengeRegion, cancellationToken);
+				OcrClickCandidate focusedContinue = OcrClickResolver.FindBest(focusedScan, InGameOpeningFlow.ContinueChallengeAliases, _config.ButtonFuzzyScore);
+				if ((object)focusedContinue != null && (object)_latestCaptureScreenRegion != null)
+				{
+					if (await ClickTextUntilPageChangesAsync("局内识别：" + focusedContinue.Item.Text, focusedContinue, InGameOpeningFlow.ContinueChallengeAliases, InGameOpeningFlow.ContinueChallengeRegion, null, cancellationToken))
+					{
+						continueChallengeCount++;
+						focusedContinueMissCount = 0;
+						AppendLog($"局内识别：底部区域已识别并点击继续挑战 {continueChallengeCount}/2 次。");
+						if (continueChallengeCount >= 2)
+						{
+							AppendLog("局内识别：已点击 2 次继续挑战，停止局内开局流程，避免第三次出战。");
+							return;
+						}
+						await DelayWithCancellationAsync(0.2, cancellationToken);
+						continue;
+					}
+				}
+				focusedContinueMissCount++;
+				await CheckAutoBattleDisabledIndicatorOnceAsync(cancellationToken);
+				await ClickRatioPointAsync(InGameOpeningFlow.ContinueFallbackPoint, "局内识别：底部继续挑战区域未命中，点击空白继续兜底", cancellationToken);
+				await DelayWithCancellationAsync(1.0, cancellationToken);
+				continue;
+			}
+			focusedContinueMissCount = 0;
 			OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.FullWindow, cancellationToken);
 			if (battleStartCount > continueChallengeCount)
 			{
@@ -2883,12 +3012,12 @@ public partial class MainWindow : Window, IComponentConnector
 			cancellationToken.ThrowIfCancellationRequested();
 			if (exitClickCount > 0)
 			{
-				OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.FullWindow, cancellationToken);
+				OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.SettlementDialogButtonRegion, cancellationToken);
 				lastText = scan.RawText;
 				OcrClickCandidate candidate = OcrClickResolver.FindBest(scan, CurrencyWarsFlow.SettlementDialogAliases, _config.ButtonFuzzyScore);
 				if ((object)candidate != null && (object)_latestCaptureScreenRegion != null)
 				{
-					if (await ClickTextUntilPageChangesAsync("自动流程：放弃并结算", candidate, CurrencyWarsFlow.SettlementDialogAliases, CurrencyWarsFlow.FullWindow, null, cancellationToken))
+					if (await ClickTextUntilPageChangesAsync("自动流程：放弃并结算", candidate, CurrencyWarsFlow.SettlementDialogAliases, CurrencyWarsFlow.SettlementDialogButtonRegion, null, cancellationToken))
 					{
 						AppendLog($"自动流程：退出确认页已识别、点击并确认切换（匹配 {candidate.Alias}）。");
 						return;
@@ -3743,14 +3872,20 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private async Task CheckForUpdatesAsync(bool showNoUpdateMessage)
 	{
+		if (VelopackUpdateService.IsInstalled)
+		{
+			await CheckForVelopackUpdatesAsync(showNoUpdateMessage);
+			return;
+		}
 		AppendLog("更新检查：当前版本 " + UpdateChecker.CurrentVersion + "。");
-		UpdateCheckResult result = await UpdateChecker.CheckLatestAsync();
+		UpdateCheckResult result = await UpdateChecker.CheckLatestAsync(_config.MirrorChyanCdk);
 		AppendLog("更新检查：" + result.Message);
 		if (!result.IsConfigured)
 		{
 			if (showNoUpdateMessage)
 			{
-				MessageBox.Show(this, result.Message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+				ShowManualUpdateWindow(UpdateChecker.CurrentVersion, UpdateChecker.CurrentVersion, "Mirror酱 / GitHub",
+					result.Message, isLatest: true, headingOverride: "暂时无法检查更新");
 			}
 			return;
 		}
@@ -3758,7 +3893,16 @@ public partial class MainWindow : Window, IComponentConnector
 		{
 			if (showNoUpdateMessage)
 			{
-				MessageBox.Show(this, result.Message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+				bool checkFailed = result.Message.Contains("失败", StringComparison.Ordinal)
+					|| result.Message.Contains("超时", StringComparison.Ordinal)
+					|| result.Message.Contains("取消", StringComparison.Ordinal);
+				ShowManualUpdateWindow(
+					UpdateChecker.CurrentVersion,
+					UpdateChecker.CurrentVersion,
+					result.Message.Contains("Mirror酱", StringComparison.Ordinal) ? "Mirror酱" : "GitHub",
+					checkFailed ? result.Message : "当前版本已经是最新版本。下面仍提供国内、海外、增量更新与网盘入口。",
+					isLatest: true,
+					headingOverride: checkFailed ? "暂时无法检查更新" : null);
 			}
 			return;
 		}
@@ -3768,10 +3912,136 @@ public partial class MainWindow : Window, IComponentConnector
 		{
 			notes = notes.Substring(0, 700) + Environment.NewLine + "...";
 		}
-		if (MessageBox.Show(this, $"发现新版本：{update.Version}{Environment.NewLine}当前版本：{UpdateChecker.CurrentVersion}{Environment.NewLine}{Environment.NewLine}{notes}{Environment.NewLine}{Environment.NewLine}" + "是否打开下载页面？", "发现新版本", MessageBoxButton.YesNo, MessageBoxImage.Asterisk) == MessageBoxResult.Yes)
+		ShowManualUpdateWindow(update.Version, UpdateChecker.CurrentVersion,
+			result.Message.Contains("Mirror酱", StringComparison.Ordinal) ? "Mirror酱" : "GitHub",
+			notes, isLatest: false);
+	}
+
+	private void ShowManualUpdateWindow(string newVersion, string currentVersion, string sourceName, string notes,
+		bool isLatest, string? headingOverride = null)
+	{
+		UpdateAvailableWindow updateWindow = new UpdateAvailableWindow(
+			newVersion,
+			currentVersion,
+			sourceName,
+			isLatest ? "无需下载" : "请使用下方下载入口",
+			notes,
+			isLatest,
+			canAutomaticUpdate: false,
+			headingOverride,
+			mirrorChyanCdk: _config.MirrorChyanCdk)
 		{
-			string url = ((!string.IsNullOrWhiteSpace(update.DownloadUrl)) ? update.DownloadUrl : update.ReleasePageUrl);
-			OpenUrl(url);
+			Owner = this
+		};
+		ShowAndSaveUpdateWindow(updateWindow);
+	}
+
+	private void ShowAndSaveUpdateWindow(UpdateAvailableWindow updateWindow)
+	{
+		updateWindow.ShowDialog();
+		if (!string.Equals(_config.MirrorChyanCdk, updateWindow.MirrorChyanCdk, StringComparison.Ordinal))
+		{
+			_config.MirrorChyanCdk = updateWindow.MirrorChyanCdk;
+			_configStore.Save(_config);
+			AppendLog(string.IsNullOrWhiteSpace(_config.MirrorChyanCdk)
+				? "Mirror酱 CDK 已清除。"
+				: "Mirror酱 CDK 已保存；下次检查更新时生效。");
+		}
+	}
+
+	private async Task CheckForVelopackUpdatesAsync(bool showNoUpdateMessage)
+	{
+		AppendLog("自动更新：优先通过 Mirror酱检查版本，失败时回退 GitHub；增量安装使用 GitHub Velopack。");
+		SetStatus("状态：正在检查更新...");
+		try
+		{
+			VelopackUpdateCheckResult result = await VelopackUpdateService.CheckAsync(_config.MirrorChyanCdk);
+			AppendLog($"自动更新：{result.Message}" + (string.IsNullOrWhiteSpace(result.SourceName) ? "" : $" 来源：{result.SourceName}。"));
+			if (result.Update == null || result.Manager == null)
+			{
+				SetStatus("状态：未运行");
+				if (showNoUpdateMessage && result.IsInstalled && result.Manager != null)
+				{
+					UpdateAvailableWindow latestWindow = new UpdateAvailableWindow(
+						result.Manager.CurrentVersion?.ToString() ?? UpdateChecker.CurrentVersion,
+						result.Manager.CurrentVersion?.ToString() ?? UpdateChecker.CurrentVersion,
+						string.IsNullOrWhiteSpace(result.SourceName) ? "GitHub" : result.SourceName,
+						"无需下载",
+						"当前版本已经是最新版本。你仍可使用下面的下载入口重新下载安装版、免安装版，或执行完整性修复。",
+						isLatest: true,
+						mirrorChyanCdk: _config.MirrorChyanCdk)
+					{
+						Owner = this
+					};
+					ShowAndSaveUpdateWindow(latestWindow);
+				}
+				else if (showNoUpdateMessage)
+				{
+					UpdateAvailableWindow failedWindow = new UpdateAvailableWindow(
+						UpdateChecker.CurrentVersion,
+						UpdateChecker.CurrentVersion,
+						string.IsNullOrWhiteSpace(result.SourceName) ? "GitHub" : result.SourceName,
+						"检查未完成",
+						result.Message,
+						isLatest: true,
+						canAutomaticUpdate: false,
+						headingOverride: "暂时无法检查更新",
+						mirrorChyanCdk: _config.MirrorChyanCdk)
+					{
+						Owner = this
+					};
+					ShowAndSaveUpdateWindow(failedWindow);
+				}
+				return;
+			}
+
+			Velopack.VelopackAsset release = result.Update.TargetFullRelease;
+			string notes = string.IsNullOrWhiteSpace(release.NotesMarkdown) ? "这个版本没有填写更新说明。" : release.NotesMarkdown.Trim();
+			if (notes.Length > 900)
+			{
+				notes = notes[..900] + Environment.NewLine + "...";
+			}
+			string sizeText = release.Size > 0 ? $"{release.Size / 1024d / 1024d:F1} MB" : "由增量包决定";
+			UpdateAvailableWindow updateWindow = new UpdateAvailableWindow(
+				release.Version.ToString(),
+				result.Manager.CurrentVersion?.ToString() ?? UpdateChecker.CurrentVersion,
+				result.SourceName,
+				sizeText,
+				notes,
+				mirrorChyanCdk: _config.MirrorChyanCdk)
+			{
+				Owner = this
+			};
+			ShowAndSaveUpdateWindow(updateWindow);
+			if (!updateWindow.StartAutomaticUpdate)
+			{
+				SetStatus("状态：未运行");
+				return;
+			}
+			if (_desktopCloneWindow != null)
+			{
+				MessageBox.Show(this, "请先关闭桌面分身窗口，再重新检查更新。更新时需要退出当前程序。", "暂时不能更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+				SetStatus("状态：未运行");
+				return;
+			}
+
+			AppendLog($"自动更新：开始从 {result.SourceName} 下载 V{release.Version}。");
+			await result.Manager.DownloadUpdatesAsync(result.Update, progress =>
+			{
+				base.Dispatcher.BeginInvoke(new Action(() => SetStatus($"状态：正在下载更新 {progress}%")));
+			}, CancellationToken.None);
+			AppendLog("自动更新：下载完成，即将安装并重启。");
+			StopAutomation();
+			result.Manager.ApplyUpdatesAndRestart(release, Array.Empty<string>());
+		}
+		catch (Exception ex)
+		{
+			SetStatus("状态：更新失败");
+			AppendLog("自动更新失败：" + ex.Message);
+			if (showNoUpdateMessage)
+			{
+				MessageBox.Show(this, ex.Message + "\n\n可以稍后重试，或使用 Mirror酱、GitHub、百度网盘手动下载。", "自动更新失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+			}
 		}
 	}
 
@@ -3821,8 +4091,53 @@ public partial class MainWindow : Window, IComponentConnector
 		if (((IntPtr)wParam).ToInt32() == 1001)
 		{
 			StopAutomation();
+			SignalChildSessionStop();
 		}
 		return IntPtr.Zero;
+	}
+
+	private void InitializeCrossSessionStopSignal()
+	{
+		try
+		{
+			_crossSessionStopEvent = new EventWaitHandle(
+				false,
+				EventResetMode.AutoReset,
+				@"Global\BetterHSRCurrencyWars.ChildSession.Stop");
+			if (App.IsChildSessionInstance)
+			{
+				_crossSessionStopWait = ThreadPool.RegisterWaitForSingleObject(
+					_crossSessionStopEvent,
+					(_, _) => Dispatcher.BeginInvoke(new Action(() =>
+					{
+						AppendLog("收到主桌面 F8 停止信号。");
+						StopAutomation();
+					})),
+					null,
+					Timeout.Infinite,
+					false);
+				AppendLog("跨会话停止信号已启用：主桌面 F8 可以停止当前分身流程。");
+			}
+		}
+		catch (Exception ex)
+		{
+			AppendLog("跨会话停止信号不可用：" + ex.Message);
+		}
+	}
+
+	private void SignalChildSessionStop()
+	{
+		if (App.IsChildSessionInstance)
+		{
+			return;
+		}
+		try
+		{
+			_crossSessionStopEvent?.Set();
+		}
+		catch (ObjectDisposedException)
+		{
+		}
 	}
 
 	[DllImport("user32.dll")]

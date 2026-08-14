@@ -24,6 +24,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Backups\**\*.cs" />
+    <Page Remove="Backups\**\*.xaml" />
+    <ApplicationDefinition Remove="Backups\**\*.xaml" />
     <EmbeddedResource Remove="Backups\**\*" />
     <None Remove="Backups\**\*" />
   </ItemGroup>

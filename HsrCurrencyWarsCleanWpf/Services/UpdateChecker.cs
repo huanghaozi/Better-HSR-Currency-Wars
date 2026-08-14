@@ -27,9 +27,27 @@ public static class UpdateChecker
 		}
 	}
 
-	public static async Task<UpdateCheckResult> CheckLatestAsync(CancellationToken cancellationToken = default(CancellationToken))
+	public static async Task<UpdateCheckResult> CheckLatestAsync(string mirrorChyanCdk = "", CancellationToken cancellationToken = default(CancellationToken))
 	{
-		_ = 3;
+		MirrorChyanCheckResult mirrorResult = await MirrorChyanUpdateService.CheckLatestAsync(CurrentVersion, mirrorChyanCdk, cancellationToken);
+		if (mirrorResult.Success)
+		{
+			if (!IsRemoteNewer(mirrorResult.LatestVersion, CurrentVersion))
+			{
+				return new UpdateCheckResult(IsConfigured: true, HasUpdate: false, "当前已是最新版本：" + CurrentVersion + "（Mirror酱）", null);
+			}
+
+			string notes = string.IsNullOrWhiteSpace(mirrorResult.ReleaseNotes) ? "这个版本没有填写更新说明。" : mirrorResult.ReleaseNotes;
+			string downloadUrl = string.IsNullOrWhiteSpace(mirrorResult.DownloadUrl) ? VelopackUpdateService.OverseasDownloadUrl : mirrorResult.DownloadUrl;
+			UpdateInfo mirrorUpdate = new UpdateInfo(
+				mirrorResult.LatestVersion,
+				mirrorResult.LatestVersion,
+				notes,
+				VelopackUpdateService.OverseasDownloadUrl,
+				downloadUrl);
+			return new UpdateCheckResult(IsConfigured: true, HasUpdate: true, "发现新版本：" + mirrorResult.LatestVersion + "（Mirror酱）", mirrorUpdate);
+		}
+
 		try
 		{
 			using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "https://439awsl-hue.github.io/Better-HSR-Currency-Wars/update.json");
@@ -75,7 +93,7 @@ public static class UpdateChecker
 		}
 		catch (Exception ex2)
 		{
-			return new UpdateCheckResult(IsConfigured: true, HasUpdate: false, "更新检查失败：" + ex2.Message + "。请确认 GitHub Pages 已开启并发布 update.json。", null);
+			return new UpdateCheckResult(IsConfigured: true, HasUpdate: false, mirrorResult.Message + Environment.NewLine + "GitHub 更新检查失败：" + ex2.Message, null);
 		}
 	}
 
@@ -88,7 +106,7 @@ public static class UpdateChecker
 		return value.GetString() ?? "";
 	}
 
-	private static bool IsRemoteNewer(string remoteVersion, string currentVersion)
+	internal static bool IsRemoteNewer(string remoteVersion, string currentVersion)
 	{
 		Version remote = ParseVersion(remoteVersion);
 		Version current = ParseVersion(currentVersion);

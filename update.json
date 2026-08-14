@@ -1,7 +1,7 @@
 {
-  "version": "13.0.0",
-  "title": "Better HSR-Currency Wars V13.0",
-  "notes": "新增桌面分身测试功能：在独立 Windows Child Session 中运行游戏与自动化，不占用主桌面鼠标；支持主桌面 F8 跨会话停止；修正凭据认证失败后分身窗口可能异常退出的问题。首次登录需要 Windows 本机账户真实密码。",
+  "version": "13.1.0",
+  "title": "Better HSR-Currency Wars V13.1",
+  "notes": "美化桌面分身窗口；更新检查改为优先使用 Mirror酱并在失败时回退 GitHub；新增 Mirror酱 CDK 输入与保存；移除腾讯云 COS；保留 GitHub Velopack 增量更新与百度网盘完整修复入口。",
   "releasePageUrl": "https://github.com/439awsl-hue/Better-HSR-Currency-Wars/releases/latest",
-  "downloadUrl": "https://better-hsrcw-updates-1329540635.cos.ap-guangzhou.myqcloud.com/updates/BetterHSRCurrencyWars-win-Setup.exe"
+  "downloadUrl": "https://github.com/439awsl-hue/Better-HSR-Currency-Wars/releases/latest"
 }
