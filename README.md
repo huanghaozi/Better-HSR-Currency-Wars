@@ -4,7 +4,7 @@
 
 ## 普通用户
 
-请前往 GitHub Releases 下载完整的 V12.8 自包含发行包。发行包包含 OCR 运行环境，不要求系统预装 .NET Desktop Runtime。
+请前往 GitHub Releases 下载完整的 V1XX 自包含发行包。发行包包含 OCR 运行环境，不要求系统预装 .NET Desktop Runtime。
 
 ## 源码
 
@@ -17,6 +17,8 @@
 - OCR 运行时构建说明：`Tools/OCRBuild/README.md`
 
 本机配置文件 `config.clean.json`、编译输出和 OCR 可执行文件不会提交到源码仓库。
+
+https://mirrorchyan.com/zh/projects?rid=Better-HSR-Currency-Wars
 
 ## 说明
 
