@@ -18,7 +18,7 @@
 
 本机配置文件 `config.clean.json`、编译输出和 OCR 可执行文件不会提交到源码仓库。
 
-https://mirrorchyan.com/zh/projects?rid=Better-HSR-Currency-Wars
+[已有 Mirror酱CDK?前往 Mirror酱 高速下载](https://mirrorchyan.com/zh/projects?rid=Better-HSR-Currency-Wars)
 
 ## 说明
 
