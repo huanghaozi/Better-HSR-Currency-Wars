@@ -4,4 +4,6 @@ obj/
 *.user
 *.suo
 config.json
+artifacts/
+VelopackReleases/
 
