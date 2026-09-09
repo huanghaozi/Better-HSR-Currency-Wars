@@ -2,10 +2,19 @@ namespace HsrCurrencyWarsCleanWpf.Core;
 
 public static class ReleaseNotes
 {
-	public const string CurrentVersion = "13.41.0";
+	public const string CurrentVersion = "13.42.0";
 
 	public const string StartupText =
 		"""
+		V13.42 更新内容
+		OCR 引擎更换为 RapidOcrNet + PP-OCRv6 small，识别率与速度大幅提升
+		移除 Python 运行时，安装包体积减少约 50MB
+		新增页面状态识别：通过文字锚点判断当前处于哪个页面
+		新增“诊断当前页面”按钮，可查看状态识别得分
+		点击后改用画面差异正向校验，修复“点了没反应却判定成功”的假通过
+		投资识别改为等待动画播完再扫描，修复投资环境被跳过的问题
+		开局连点结束后确认已进入词条页，未进入时直接报错
+
 		V13.41 更新内容
 		新增游戏画面区域识别：自动识别云游戏客户端标题栏与画面黑边
 		修复云游戏窗口下点击左上角退出按钮失效的问题

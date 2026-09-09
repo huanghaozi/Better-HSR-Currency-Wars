@@ -141,7 +141,7 @@ public partial class MainWindow : Window, IComponentConnector
 		InitializeComponent();
 		if (App.IsChildSessionInstance)
 		{
-			Title = "Better HSR-Currency Wars V13.41（桌面分身）";
+			Title = "Better HSR-Currency Wars V13.42（桌面分身）";
 			DesktopCloneButton.IsEnabled = false;
 			DesktopCloneButton.Content = "当前位于桌面分身";
 		}
@@ -1699,6 +1699,55 @@ public partial class MainWindow : Window, IComponentConnector
 		return 0.0;
 	}
 
+	/// <summary>
+	/// 识别当前页面状态并输出全部候选得分，用于确认状态表是否准确。
+	/// </summary>
+	private async void DiagnosePageState_Click(object sender, RoutedEventArgs e)
+	{
+		if (_automationCts != null)
+		{
+			MessageBox.Show(this, "请先停止当前自动流程，再进行页面诊断。", "诊断当前页面", MessageBoxButton.OK, MessageBoxImage.Information);
+			return;
+		}
+		try
+		{
+			if (!TryFindWindow() || _gameWindow == null)
+			{
+				return;
+			}
+			OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.FullWindow, CancellationToken.None);
+			PageStateMatch match = PageStateDetector.Detect(scan, _config.ButtonFuzzyScore);
+			IReadOnlyList<PageStateMatch> all = PageStateDetector.DetectAll(scan, _config.ButtonFuzzyScore);
+			_currentState = match.State;
+
+			AppendLog("页面诊断：当前状态 = " + match.DisplayName + $"，得分 {match.Score}（阈值 {PageStateDetector.MinimumScore}）。");
+			AppendLog($"页面诊断：命中锚点 = {(match.HitAnchors.Count == 0 ? "无" : string.Join("、", match.HitAnchors))}。");
+			if (all.Count == 0)
+			{
+				AppendLog("页面诊断：没有任何候选状态命中，请检查 OCR 原文或补充锚点。");
+			}
+			else
+			{
+				foreach (PageStateMatch item in all)
+				{
+					AppendLog($"页面诊断：候选 {item.DisplayName} 得分 {item.Score}（{string.Join("、", item.HitAnchors)}）");
+				}
+			}
+
+			string detail = all.Count == 0
+				? "没有任何候选状态命中。"
+				: string.Join("\n", all.Select(x => $"{x.DisplayName}：{x.Score} 分（{string.Join("、", x.HitAnchors)}）"));
+			MessageBox.Show(this,
+				$"当前状态：{match.DisplayName}\n得分：{match.Score}（阈值 {PageStateDetector.MinimumScore}）\n\n全部候选：\n{detail}\n\nOCR 文本块：{scan.Items.Count}",
+				"诊断当前页面", MessageBoxButton.OK, MessageBoxImage.Information);
+		}
+		catch (Exception ex)
+		{
+			AppendLog("页面诊断失败：" + ex.Message);
+			MessageBox.Show(this, ex.Message, "页面诊断失败", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+		}
+	}
+
 	private void SetAutomationButtonsEnabled(bool enabled)
 	{
 		StartAutoButton.IsEnabled = enabled;
@@ -2207,7 +2256,7 @@ public partial class MainWindow : Window, IComponentConnector
 	{
 		RefreshGameWindowForIndependentStep();
 		int clickCount = (int)Math.Ceiling(CurrencyWarsFlow.OpeningRapidAdvanceDurationSeconds / CurrencyWarsFlow.OpeningRapidAdvanceClickIntervalSeconds);
-		AppendLog($"{scope}：前三页使用共同固定点位持续点击 {CurrencyWarsFlow.OpeningRapidAdvanceDurationSeconds:g} 秒，间隔 {CurrencyWarsFlow.OpeningRapidAdvanceClickIntervalSeconds:g} 秒，共 {clickCount} 次；结束后直接开始主词条 OCR。");
+		AppendLog($"{scope}：前三页使用共同固定点位持续点击 {CurrencyWarsFlow.OpeningRapidAdvanceDurationSeconds:g} 秒，间隔 {CurrencyWarsFlow.OpeningRapidAdvanceClickIntervalSeconds:g} 秒，共 {clickCount} 次；结束后等待词条页出现。");
 		for (int i = 0; i < clickCount; i++)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
@@ -2222,6 +2271,13 @@ public partial class MainWindow : Window, IComponentConnector
 		if (remainingSeconds > 0.0)
 		{
 			await DelayWithCancellationAsync(remainingSeconds, cancellationToken);
+		}
+		// 连点结束不代表一定进入了词条页（可能少点一次或页面加载慢）。
+		// 这里显式确认状态，确认不了就报错，不静默继续。
+		PageStateMatch state = await WaitForStateAsync($"{scope}：等待词条页", new[] { PageState.TraitReveal }, 8.0, cancellationToken);
+		if (state.State != PageState.TraitReveal)
+		{
+			throw new InvalidOperationException($"{scope}：前三页连点后未进入词条页，实际识别为「{state.DisplayName}」。");
 		}
 	}
 
@@ -3233,6 +3289,11 @@ public partial class MainWindow : Window, IComponentConnector
 		DateTime deadline = DateTime.UtcNow.AddSeconds(step.TimeoutSeconds);
 		string lastText = "";
 		bool useBottomReturnPoint = IsBottomReturnFlowStep(step);
+		// 先等画面稳定再识别，避免页面切换动画未播完就 OCR 导致识别不到而误判。
+		if (!useBottomReturnPoint && step.SearchRegion != CurrencyWarsFlow.FullWindow)
+		{
+			await WaitForStableAsync("自动流程：" + step.Name + " 执行前", 2.5, cancellationToken);
+		}
 		if (step.PreferFixedPoint && (object)step.FallbackPoint != null)
 		{
 			// OCR 容易把页面上的其他同名字样误判成按钮，先直接用固定坐标点击并验证页面切换。
@@ -3505,6 +3566,8 @@ public partial class MainWindow : Window, IComponentConnector
 	private async Task<BasicScanEvaluation?> WaitForDebuffEvaluationAsync(string scope, CancellationToken cancellationToken)
 	{
 		await DelayWithCancellationAsync(_config.DebuffCheckDelaySeconds, cancellationToken);
+		// 词条页有入场动画，先等画面稳定再判定，避免动画期间识别不到词条。
+		await WaitForStableAsync(scope + "：主词条识别前", 3.0, cancellationToken);
 		DateTime deadline = DateTime.UtcNow.AddSeconds(3.0);
 		BasicScanEvaluation latestEvaluation = null;
 		while (DateTime.UtcNow < deadline)
@@ -3574,14 +3637,19 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private async Task<string?> TryClickInvestmentTargetAsync(string scope, CancellationToken cancellationToken, bool logRawText = false)
 	{
-		AppendLog($"自动流程：{scope}开始，固定扫描 {CurrencyWarsFlow.InvestmentScanAttemptCount} 次。");
+		// 投资环境页面有入场动画。先等画面稳定，再在固定时长内持续扫描，
+		// 避免动画未播完就 OCR 不到而误判为"未命中"。
+		await WaitForStableAsync($"自动流程：{scope} 执行前", 3.0, cancellationToken);
+		AppendLog($"自动流程：{scope}开始，最长扫描 {CurrencyWarsFlow.InvestmentScanTimeoutSeconds:g} 秒。");
 		OcrClickCandidate? bestCandidate = null;
 		int bestPriority = int.MaxValue;
-		for (int attempt = 1; attempt <= CurrencyWarsFlow.InvestmentScanAttemptCount; attempt++)
+		DateTime deadline = DateTime.UtcNow.AddSeconds(CurrencyWarsFlow.InvestmentScanTimeoutSeconds);
+		int attempt = 0;
+		while (DateTime.UtcNow < deadline)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			attempt++;
 			SetStatus($"状态：{scope} 第 {attempt} 次");
-			AppendLog($"自动流程：{scope} 第 {attempt} 次扫描上半屏。");
 			OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.TopHalf, cancellationToken);
 			if (logRawText)
 			{
@@ -3596,15 +3664,13 @@ public partial class MainWindow : Window, IComponentConnector
 					bestCandidate = candidate;
 					bestPriority = priority;
 				}
+				// 命中最高优先级目标，无需继续等待。
 				if (bestPriority == 0)
 				{
 					break;
 				}
 			}
-			if (attempt < CurrencyWarsFlow.InvestmentScanAttemptCount)
-			{
-				await DelayWithCancellationAsync(0.1, cancellationToken);
-			}
+			await DelayWithCancellationAsync(CurrencyWarsFlow.InvestmentScanPollIntervalSeconds, cancellationToken);
 		}
 		if (bestCandidate != null && _latestCaptureScreenRegion != null)
 		{
@@ -3613,7 +3679,7 @@ public partial class MainWindow : Window, IComponentConnector
 			AppendLog($"自动流程：{scope}按优先级选择第 {bestPriority + 1} 项：{bestCandidate.Alias}。");
 			return bestCandidate.Alias;
 		}
-		AppendLog("自动流程：" + scope + "结束，未命中投资词条。");
+		AppendLog($"自动流程：{scope}结束（共扫描 {attempt} 次），未命中投资词条。");
 		return null;
 	}
 
@@ -3860,6 +3926,82 @@ public partial class MainWindow : Window, IComponentConnector
 	private Task RestartOcrAtSafePointIfDueAsync(string scope, CancellationToken cancellationToken)
 	{
 		return Task.CompletedTask;
+	}
+
+	/// <summary>当前识别到的页面状态，供诊断与流程判断使用。</summary>
+	private PageState _currentState = PageState.Unknown;
+
+	/// <summary>
+	/// 全屏 OCR 一次并识别当前页面状态。
+	/// </summary>
+	private async Task<PageStateMatch> CaptureAndDetectStateAsync(string scope, CancellationToken cancellationToken)
+	{
+		OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.FullWindow, cancellationToken);
+		PageStateMatch match = PageStateDetector.Detect(scan, _config.ButtonFuzzyScore);
+		_currentState = match.State;
+		AppendLog($"{scope}：页面状态 = {match.DisplayName}（得分 {match.Score}，锚点：{(match.HitAnchors.Count == 0 ? "无" : string.Join("、", match.HitAnchors))}）。");
+		return match;
+	}
+
+	/// <summary>
+	/// 等待进入指定页面状态之一，超时返回最后一次识别结果。
+	/// </summary>
+	private async Task<PageStateMatch> WaitForStateAsync(string scope, IReadOnlyList<PageState> expectedStates, double timeoutSeconds, CancellationToken cancellationToken)
+	{
+		DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+		PageStateMatch last = PageStateMatch.Unknown;
+		while (DateTime.UtcNow < deadline)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			last = await CaptureAndDetectStateAsync(scope, cancellationToken);
+			if (expectedStates.Contains(last.State))
+			{
+				return last;
+			}
+			await DelayWithCancellationAsync(0.3, cancellationToken);
+		}
+		AppendLog($"{scope}：等待状态超时，期望 {string.Join("/", expectedStates.Select(PageStateDetector.GetDisplayName))}，实际 {last.DisplayName}。");
+		return last;
+	}
+
+	/// <summary>
+	/// 等待画面稳定（动画结束）。连续两帧差异低于阈值即认为稳定。
+	/// </summary>
+	private async Task<bool> WaitForStableAsync(string scope, double timeoutSeconds, CancellationToken cancellationToken)
+	{
+		DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+		BitmapSource? previous = CaptureGameContentImage(CurrencyWarsFlow.FullWindow);
+		if (previous == null)
+		{
+			return false;
+		}
+		while (DateTime.UtcNow < deadline)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			await DelayWithCancellationAsync(0.25, cancellationToken);
+			BitmapSource? current = CaptureGameContentImage(CurrencyWarsFlow.FullWindow);
+			double diff = AnimationWaiter.DiffRatio(previous, current);
+			if (AnimationWaiter.IsStable(diff))
+			{
+				AppendLog($"{scope}：画面已稳定（帧间差异 {diff:P1}）。");
+				return true;
+			}
+			previous = current;
+		}
+		AppendLog($"{scope}：等待画面稳定超时。");
+		return false;
+	}
+
+	/// <summary>
+	/// 断言当前处于预期状态，不满足时抛出异常（不静默继续）。
+	/// </summary>
+	private async Task AssertStateAsync(string scope, PageState expected, double timeoutSeconds, CancellationToken cancellationToken)
+	{
+		PageStateMatch match = await WaitForStateAsync(scope, new[] { expected }, timeoutSeconds, cancellationToken);
+		if (match.State != expected)
+		{
+			throw new InvalidOperationException($"{scope}：期望进入「{PageStateDetector.GetDisplayName(expected)}」，实际识别为「{match.DisplayName}」。");
+		}
 	}
 
 	private static bool IsDebuffScreenReady(string ocrText)

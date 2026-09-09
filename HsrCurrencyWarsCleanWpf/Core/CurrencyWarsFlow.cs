@@ -62,6 +62,15 @@ public static class CurrencyWarsFlow
 
 	public const int InvestmentScanAttemptCount = 3;
 
+	/// <summary>
+	/// 投资识别的总扫描时长。投资环境页面有入场动画，原先只扫 3 次约 0.3 秒，
+	/// 动画未播完就会判定未命中；这里改为在固定时长内持续扫描。
+	/// </summary>
+	public const double InvestmentScanTimeoutSeconds = 3.0;
+
+	/// <summary>投资识别两次扫描之间的间隔。</summary>
+	public const double InvestmentScanPollIntervalSeconds = 0.15;
+
 	public const double InvestmentRecheckIntervalSeconds = 0.1;
 
 	public const double FastExitProbeIntervalSeconds = 0.11;
