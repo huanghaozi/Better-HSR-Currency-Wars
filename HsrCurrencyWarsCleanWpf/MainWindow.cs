@@ -57,8 +57,6 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private const int MaxLogLines = 500;
 
-	private static readonly TimeSpan OcrMaintenanceRestartInterval = TimeSpan.FromMinutes(90.0);
-
 	private static readonly RatioPoint WeeklyHomeSafePoint = new RatioPoint(0.94, 0.8);
 
 	private static readonly RatioRegion WeeklyPointsRegion = new RatioRegion(0.018, 0.865, 0.205, 0.085);
@@ -3855,20 +3853,13 @@ public partial class MainWindow : Window, IComponentConnector
 		return scan;
 	}
 
-	private async Task RestartOcrAtSafePointIfDueAsync(string scope, CancellationToken cancellationToken)
+	/// <summary>
+	/// RapidOcrNet 是常驻内存的纯 C# 实现，不需要像旧 Python 进程那样定期重启。
+	/// 保留方法签名以兼容调用点，实际不做任何操作。
+	/// </summary>
+	private Task RestartOcrAtSafePointIfDueAsync(string scope, CancellationToken cancellationToken)
 	{
-		if (_ocrService is not ExternalRapidOcrService rapidOcr
-			|| !rapidOcr.IsMaintenanceRestartDue(OcrMaintenanceRestartInterval))
-		{
-			return;
-		}
-		AppendLog($"{scope}：OCR 常驻进程已运行 90 分钟，本轮已回到安全位置，等待 2 秒后执行维护重启。");
-		await DelayWithCancellationAsync(2.0, cancellationToken);
-		if (await rapidOcr.RestartForMaintenanceIfDueAsync(OcrMaintenanceRestartInterval, cancellationToken))
-		{
-			AppendLog($"{scope}：OCR 常驻进程维护重启完成；下一次识别时会自动重新加载模型。");
-			await DelayWithCancellationAsync(1.0, cancellationToken);
-		}
+		return Task.CompletedTask;
 	}
 
 	private static bool IsDebuffScreenReady(string ocrText)
@@ -3955,41 +3946,21 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private static IOcrService CreateOcrService()
 	{
-		string bridgeExe = Path.Combine(AppContext.BaseDirectory, "OCRRuntime", "rapidocr_bridge", "rapidocr_bridge.exe");
-		if (File.Exists(bridgeExe))
+		// 使用纯 C# 的 RapidOcrNet + PP-OCRv6 small：无 Python 进程，识别率与速度都更好。
+		string modelDirectory = Path.Combine(AppContext.BaseDirectory, "OCRRuntime", "models", "v6");
+		if (!RapidOcrNetService.IsAvailable(modelDirectory))
 		{
-			return new ExternalRapidOcrService(bridgeExe);
+			IReadOnlyList<string> missing = RapidOcrNetService.FindMissingFiles(modelDirectory);
+			return new PendingOcrService("缺少 OCR 模型文件：" + string.Join("；", missing));
 		}
-		string bridgeScript = Path.Combine(AppContext.BaseDirectory, "Tools", "rapidocr_bridge.py");
-		if (!File.Exists(bridgeScript))
+		try
 		{
-			return new PendingOcrService("找不到桥接脚本：" + bridgeScript);
+			return new RapidOcrNetService(modelDirectory);
 		}
-		string pythonExe = FindPythonExe();
-		if (pythonExe == null)
+		catch (Exception ex)
 		{
-			return new PendingOcrService("找不到可用 Python。");
+			return new PendingOcrService("OCR 模型加载失败：" + ex.Message);
 		}
-		return new ExternalRapidOcrService(pythonExe, bridgeScript);
-	}
-
-	private static string? FindPythonExe()
-	{
-		string[] array = new string[4]
-		{
-			Path.Combine(AppContext.BaseDirectory, "OCRRuntime", "python.exe"),
-			Path.Combine(AppContext.BaseDirectory, "ocr_runtime", "python.exe"),
-			Path.Combine(AppContext.BaseDirectory, ".venv", "Scripts", "python.exe"),
-			"C:\\Users\\SHINELON\\Documents\\Codex\\2026-06-07\\windows-python-ocr-debuff-1-python\\outputs\\debuff_ocr_tool\\.venv\\Scripts\\python.exe"
-		};
-		foreach (string candidate in array)
-		{
-			if (File.Exists(candidate))
-			{
-				return candidate;
-			}
-		}
-		return "python";
 	}
 
 	private void AppendLog(string message)

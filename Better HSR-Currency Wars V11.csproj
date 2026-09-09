@@ -36,9 +36,6 @@
     <Content Include="OCRRuntime\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Tools\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="config.clean.json" Condition="Exists('config.clean.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -48,5 +45,6 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Velopack" Version="1.2.0" />
+    <PackageReference Include="RapidOcrNet" Version="3.1.0" />
   </ItemGroup>
 </Project>

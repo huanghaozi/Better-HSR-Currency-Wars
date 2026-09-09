@@ -6,7 +6,6 @@ using System.Windows;
 using System.Windows.Resources;
 
 [assembly: ThemeInfo(ResourceDictionaryLocation.None, ResourceDictionaryLocation.SourceAssembly)]
-[assembly: AssemblyAssociatedContentFile("tools/rapidocr_bridge.py")]
 [assembly: AssemblyAssociatedContentFile("assets/app.ico")]
 [assembly: AssemblyAssociatedContentFile("assets/donation-code.png")]
 [assembly: AssemblyAssociatedContentFile("assets/maomao-icon.png")]
