@@ -84,6 +84,12 @@ public static class InGameOpeningFlow
 
 	public static readonly string[] ContinueButtonAliases = new string[6] { "点击空白处继续", "下一步", "下一页", "继续挑战", "前往结算", "确认" };
 
+	/// <summary>局内底部「继续挑战」按钮所在的搜索区域。</summary>
+	public static readonly RatioRegion ContinueChallengeRegion = new RatioRegion(0.28, 0.76, 0.44, 0.2);
+
+	/// <summary>「继续挑战」按钮的文字别名。</summary>
+	public static readonly string[] ContinueChallengeAliases = new string[1] { "继续挑战" };
+
 	public static readonly string[] TargetStrategyAliases = new string[1] { "本姑娘就是罗刹" };
 
 	public static readonly string[] ReincarnationStrategyAliases = new string[1] { "轮回不止" };
