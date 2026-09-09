@@ -3290,6 +3290,8 @@ public partial class MainWindow : Window, IComponentConnector
 		for (int attempt = 1; attempt <= 3; attempt++)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			// 点击前先记录画面，用于后续正向校验。
+			BitmapSource? before = CaptureGameContentImage(CurrencyWarsFlow.FullWindow);
 			if ((object)fixedClickPoint != null)
 			{
 				await ClickRatioPointAsync(fixedClickPoint, $"{scope} 第 {attempt} 次", cancellationToken);
@@ -3321,6 +3323,14 @@ public partial class MainWindow : Window, IComponentConnector
 				AppendLog($"{scope}：目标下一页未出现，且仍识别到 {currentPageCandidate.Item.Text}（匹配 {currentPageCandidate.Alias}），准备重试本步骤。");
 				continue;
 			}
+			// 画面差异校验：OCR 未命中不代表点击没生效，先看画面是否真的变了。
+			BitmapSource? after = CaptureGameContentImage(CurrencyWarsFlow.FullWindow);
+			double changedRatio = ScreenshotComparer.ChangedRatio(before, after);
+			if (ScreenshotComparer.HasChanged(changedRatio))
+			{
+				AppendLog($"{scope}：点击后画面变化 {changedRatio:P0}，确认点击生效。");
+				return true;
+			}
 			OcrScanResult verificationScan = await CaptureAndOcrAsync(verificationRegion, cancellationToken);
 			OcrClickCandidate remaining = OcrClickResolver.FindBest(verificationScan, verificationAliases, _config.ButtonFuzzyScore);
 			if ((object)remaining == null)
@@ -3329,9 +3339,30 @@ public partial class MainWindow : Window, IComponentConnector
 				return true;
 			}
 			candidate = remaining;
-			AppendLog($"{scope}：点击后仍识别到 {remaining.Item.Text}（匹配 {remaining.Alias}），准备重试。");
+			AppendLog($"{scope}：点击后画面变化仅 {changedRatio:P0}，仍识别到 {remaining.Item.Text}（匹配 {remaining.Alias}），准备重试。");
 		}
 		return false;
+	}
+
+	/// <summary>
+	/// 只截取游戏画面（不跑 OCR），用于点击前后的画面差异校验。
+	/// </summary>
+	private BitmapSource? CaptureGameContentImage(RatioRegion region)
+	{
+		if (_gameWindow == null)
+		{
+			return null;
+		}
+		try
+		{
+			CaptureRegion captureRegion = new CaptureRegion("画面校验区域", region.X, region.Y, region.Width, region.Height);
+			return _windowCapture.Capture(GetGameContentWindow(), captureRegion);
+		}
+		catch (Exception ex)
+		{
+			AppendLog("画面校验截图失败：" + ex.Message);
+			return null;
+		}
 	}
 
 	private async Task<bool> ClickFixedPointUntilPageChangesAsync(string scope, RatioPoint point, IReadOnlyList<string> currentPageAliases, RatioRegion verificationRegion, CancellationToken cancellationToken)
@@ -3340,6 +3371,8 @@ public partial class MainWindow : Window, IComponentConnector
 		for (int attempt = 1; attempt <= 3; attempt++)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			// 点击前先记录画面，点击后用它做正向校验，避免 OCR 漏识别导致假通过。
+			BitmapSource? before = CaptureGameContentImage(CurrencyWarsFlow.FullWindow);
 			await ClickRatioPointAsync(point, $"{scope} 第 {attempt} 次", cancellationToken);
 			await DelayWithCancellationAsync(0.8, cancellationToken);
 			if (expectedAliases.Count > 0)
@@ -3360,6 +3393,14 @@ public partial class MainWindow : Window, IComponentConnector
 				}
 				continue;
 			}
+			// 画面差异校验：点击后画面发生实质变化即认为点击已生效。
+			BitmapSource? after = CaptureGameContentImage(CurrencyWarsFlow.FullWindow);
+			double changedRatio = ScreenshotComparer.ChangedRatio(before, after);
+			if (ScreenshotComparer.HasChanged(changedRatio))
+			{
+				AppendLog($"{scope}：点击后画面变化 {changedRatio:P0}，确认点击生效。");
+				return true;
+			}
 			OcrScanResult scan = await CaptureAndOcrAsync(verificationRegion, cancellationToken);
 			OcrClickCandidate remaining = OcrClickResolver.FindBest(scan, currentPageAliases, _config.ButtonFuzzyScore);
 			if ((object)remaining == null)
@@ -3367,9 +3408,9 @@ public partial class MainWindow : Window, IComponentConnector
 				AppendLog(scope + "：原页面特征已消失，确认页面已切换。");
 				return true;
 			}
-			AppendLog($"{scope}：原页面仍存在（{remaining.Item.Text}），准备重试。");
+			AppendLog($"{scope}：点击后画面变化仅 {changedRatio:P0}，且仍识别到 {remaining.Item.Text}，判定点击未生效，准备重试。");
 		}
-		AppendLog(scope + "：连续 3 次点击后原页面仍存在，交回外层流程继续判断。");
+		AppendLog(scope + "：连续 3 次点击后页面仍未变化，交回外层流程继续判断。");
 		return false;
 	}
 
