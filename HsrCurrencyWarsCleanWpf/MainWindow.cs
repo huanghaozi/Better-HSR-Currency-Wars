@@ -2384,7 +2384,10 @@ public partial class MainWindow : Window, IComponentConnector
 	private async Task ClickBottomReturnSequenceWhenNextDetectedAsync(string scope, IReadOnlyList<string> aliases, double timeoutSeconds, CancellationToken cancellationToken)
 	{
 		RefreshGameWindowForIndependentStep();
-		DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+		// 结算返回的固定连点是稳定路径，这里只用很短的窗口确认“下一步”是否已出现。
+		// 原先沿用整步超时（8 秒）会让每轮白白多等 8 秒，实际识别不到时同样会走连点兜底。
+		double probeSeconds = Math.Min(timeoutSeconds, 1.0);
+		DateTime deadline = DateTime.UtcNow.AddSeconds(probeSeconds);
 		string lastText = "";
 		while (DateTime.UtcNow < deadline)
 		{
@@ -2400,7 +2403,7 @@ public partial class MainWindow : Window, IComponentConnector
 			}
 			await DelayWithCancellationAsync(0.15, cancellationToken);
 		}
-		AppendLog(scope + "：下一步 OCR 未命中，直接使用底部固定连点兜底。最后 OCR：" + ShortText(lastText));
+		AppendLog($"{scope}：{probeSeconds:0.#} 秒内未识别到“下一步”，直接使用底部固定连点。最后 OCR：" + ShortText(lastText));
 		await ClickFixedBottomReturnSequenceAsync(scope, cancellationToken);
 	}
 
@@ -2532,7 +2535,7 @@ public partial class MainWindow : Window, IComponentConnector
 			cancellationToken.ThrowIfCancellationRequested();
 			_gameWindow = _windowCapture.FindWindow(_config.WindowTitle);
 			CaptureRegion region = new CaptureRegion("自动战斗关闭标识", InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.X, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Y, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Width, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Height);
-			BitmapSource image = _windowCapture.Capture(_gameWindow, region);
+			BitmapSource image = _windowCapture.Capture(GetGameContentWindow(), region);
 			AutoBattleDetectionResult detection = AutoBattleStateDetector.Detect(image);
 			completedScans++;
 			if (!detection.IsDisabled)
@@ -2565,7 +2568,7 @@ public partial class MainWindow : Window, IComponentConnector
 			await DelayWithCancellationAsync(InGameOpeningFlow.AutoBattleVerificationDelaySeconds, cancellationToken);
 			_gameWindow = _windowCapture.FindWindow(_config.WindowTitle);
 			CaptureRegion verificationRegion = new CaptureRegion("自动战斗关闭标识复检", InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.X, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Y, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Width, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Height);
-			BitmapSource verificationImage = _windowCapture.Capture(_gameWindow, verificationRegion);
+			BitmapSource verificationImage = _windowCapture.Capture(GetGameContentWindow(), verificationRegion);
 			AutoBattleDetectionResult verification = AutoBattleStateDetector.Detect(verificationImage);
 			if (verification.IsDisabled)
 			{
@@ -2586,7 +2589,7 @@ public partial class MainWindow : Window, IComponentConnector
 	{
 		_gameWindow = _windowCapture.FindWindow(_config.WindowTitle);
 		CaptureRegion region = new CaptureRegion("自动战斗关闭标识", InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.X, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Y, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Width, InGameOpeningFlow.AutoBattleDisabledIndicatorRegion.Height);
-		BitmapSource image = _windowCapture.Capture(_gameWindow, region);
+		BitmapSource image = _windowCapture.Capture(GetGameContentWindow(), region);
 		AutoBattleDetectionResult detection = AutoBattleStateDetector.Detect(image);
 		if (!detection.IsDisabled)
 		{
@@ -2893,7 +2896,7 @@ public partial class MainWindow : Window, IComponentConnector
 		marker.UriSource = new Uri(templatePath, UriKind.Absolute);
 		marker.EndInit();
 		marker.Freeze();
-		BitmapSource screenshot = _windowCapture.Capture(_gameWindow, new CaptureRegion("策略图鉴标识", 0.0, 0.0, 1.0, 1.0));
+		BitmapSource screenshot = _windowCapture.Capture(GetGameContentWindow(), new CaptureRegion("策略图鉴标识", 0.0, 0.0, 1.0, 1.0));
 		IReadOnlyList<StrategyCollectionMarkerMatch> matches = StrategyCollectionMarkerDetector.FindMatches(screenshot, marker, InGameOpeningFlow.StrategyCardSearchRegions, cancellationToken);
 		int[] preferredColumns = new int[3] { 1, 0, 2 };
 		foreach (int column in preferredColumns)
@@ -3232,6 +3235,17 @@ public partial class MainWindow : Window, IComponentConnector
 		DateTime deadline = DateTime.UtcNow.AddSeconds(step.TimeoutSeconds);
 		string lastText = "";
 		bool useBottomReturnPoint = IsBottomReturnFlowStep(step);
+		if (step.PreferFixedPoint && (object)step.FallbackPoint != null)
+		{
+			// OCR 容易把页面上的其他同名字样误判成按钮，先直接用固定坐标点击并验证页面切换。
+			AppendLog("自动流程：" + step.Name + " 优先使用固定坐标点击，跳过 OCR 重试。");
+			if (await ClickFixedPointUntilPageChangesAsync(step.Name + " 固定坐标", step.FallbackPoint, step.Aliases, step.SearchRegion, cancellationToken))
+			{
+				SetStatus("状态：已点击 " + step.Name);
+				return;
+			}
+			AppendLog("自动流程：" + step.Name + " 固定坐标点击后页面未切换，回退 OCR 识别。");
+		}
 		while (DateTime.UtcNow < deadline)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
@@ -3641,7 +3655,7 @@ public partial class MainWindow : Window, IComponentConnector
 		marker.UriSource = new Uri(templatePath, UriKind.Absolute);
 		marker.EndInit();
 		marker.Freeze();
-		BitmapSource screenshot = _windowCapture.Capture(_gameWindow, new CaptureRegion("投资图鉴标识", 0.0, 0.0, 1.0, 1.0));
+		BitmapSource screenshot = _windowCapture.Capture(GetGameContentWindow(), new CaptureRegion("投资图鉴标识", 0.0, 0.0, 1.0, 1.0));
 		IReadOnlyList<StrategyCollectionMarkerMatch> matches = StrategyCollectionMarkerDetector.FindMatches(screenshot, marker, CurrencyWarsFlow.InvestmentCardSearchRegions, cancellationToken);
 		int[] preferredColumns = new int[3] { 1, 0, 2 };
 		foreach (int column in preferredColumns)
@@ -3788,7 +3802,7 @@ public partial class MainWindow : Window, IComponentConnector
 		}
 		CaptureRegion captureRegion = new CaptureRegion("自动流程区域", region.X, region.Y, region.Width, region.Height);
 		WindowClientRect resolved = _windowCapture.ResolveRegion(ResolveGameContentRect(), captureRegion);
-		BitmapSource image = (_latestPreviewImage = _windowCapture.Capture(_gameWindow, captureRegion));
+		BitmapSource image = (_latestPreviewImage = _windowCapture.Capture(GetGameContentWindow(), captureRegion));
 		_latestCaptureScreenRegion = resolved;
 		_latestPreviewRegion = captureRegion;
 		PreviewImage.Source = image;

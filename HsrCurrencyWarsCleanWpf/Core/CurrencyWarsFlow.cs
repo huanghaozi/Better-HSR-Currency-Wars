@@ -114,6 +114,7 @@ public static class CurrencyWarsFlow
 			Aliases = new _003C_003Ez__ReadOnlySingleElementList<string>("下一步"),
 			TimeoutSeconds = 8.0,
 			FallbackPoint = new RatioPoint(0.88, 0.895),
+			PreferFixedPoint = true,
 			StandardDelayAfterSeconds = 0.8
 		},
 		new FlowStep
