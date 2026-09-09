@@ -22,7 +22,7 @@ jobs:
         run: dotnet --info
 
       - name: Restore
-        run: dotnet restore "Better HSR-Currency Wars V11.csproj" --configfile NuGet.Config
+        run: dotnet restore "Better HSR-Currency Wars V11.csproj" --source https://api.nuget.org/v3/index.json
 
       - name: Build
         run: dotnet build "Better HSR-Currency Wars V11.csproj" -c Release --no-restore
