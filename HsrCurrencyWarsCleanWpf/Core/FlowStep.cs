@@ -17,13 +17,6 @@ public sealed class FlowStep
 
 	public RatioPoint? FallbackPoint { get; init; }
 
-	/// <summary>
-	/// 优先直接点击 <see cref="FallbackPoint"/>，而不是先走 OCR 识别重试。
-	/// 适用于 OCR 容易误识别到其他同名字样、但固定坐标稳定的按钮（例如词条页底部的“下一步”）。
-	/// 固定坐标点击后仍会验证页面是否切换，未切换时才回退 OCR。
-	/// </summary>
-	public bool PreferFixedPoint { get; init; }
-
 	public string? Key { get; init; }
 
 	public double TimeoutSeconds { get; init; } = 12.0;

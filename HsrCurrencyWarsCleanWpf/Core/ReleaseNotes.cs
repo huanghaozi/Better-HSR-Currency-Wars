@@ -2,10 +2,17 @@ namespace HsrCurrencyWarsCleanWpf.Core;
 
 public static class ReleaseNotes
 {
-	public const string CurrentVersion = "13.42.0";
+	public const string CurrentVersion = "13.43.0";
 
 	public const string StartupText =
 		"""
+		V13.43 更新内容
+		投资确认改为 OCR 识别「确认」按钮，识别不到才用固定坐标
+		移除无条件的「蓝海二段」盲点，改为按页面状态判断是否需要二次投资
+		投资卡片改为 OCR 定位标题后点击，不再直接点固定坐标
+		返回首页、等待棋盘、等待词条页均改用状态机判断
+		词条页「下一步」恢复 OCR 优先，不再强制固定坐标
+
 		V13.42 更新内容
 		OCR 引擎更换为 RapidOcrNet + PP-OCRv6 small，识别率与速度大幅提升
 		移除 Python 运行时，安装包体积减少约 50MB

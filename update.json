@@ -1,7 +1,7 @@
 {
-  "version": "13.42.0",
-  "title": "Better HSR-Currency Wars V13.42",
-  "notes": "OCR 引擎更换为 RapidOcrNet + PP-OCRv6 small，识别率与速度大幅提升；移除 Python 运行时，安装包减少约 50MB；新增页面状态识别与“诊断当前页面”按钮；点击后改用画面差异正向校验，修复假通过；投资识别等待动画播完再扫描，修复投资环境被跳过。",
+  "version": "13.43.0",
+  "title": "Better HSR-Currency Wars V13.43",
+  "notes": "投资确认改为 OCR 识别按钮；移除无条件的蓝海二段盲点，改为状态驱动；投资卡片 OCR 定位标题后点击；返回首页、等待棋盘、等待词条页改用状态机判断。",
   "releasePageUrl": "https://github.com/439awsl-hue/Better-HSR-Currency-Wars/releases/latest",
   "downloadUrl": "https://github.com/439awsl-hue/Better-HSR-Currency-Wars/releases/latest"
 }

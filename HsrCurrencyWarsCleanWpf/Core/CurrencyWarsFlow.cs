@@ -122,8 +122,8 @@ public static class CurrencyWarsFlow
 			Name = "下一步",
 			Aliases = new _003C_003Ez__ReadOnlySingleElementList<string>("下一步"),
 			TimeoutSeconds = 8.0,
+			SearchRegion = BottomHalf,
 			FallbackPoint = new RatioPoint(0.88, 0.895),
-			PreferFixedPoint = true,
 			StandardDelayAfterSeconds = 0.8
 		},
 		new FlowStep
@@ -157,9 +157,12 @@ public static class CurrencyWarsFlow
 		},
 		new FlowStep
 		{
-			Kind = FlowStepKind.ClickRelativePoint,
+			Kind = FlowStepKind.ClickText,
 			Name = "固定确认",
-			ClickPoint = new RatioPoint(0.565, 0.91),
+			Aliases = new global::_003C_003Ez__ReadOnlyArray<string>(new string[2] { "确认", "确定" }),
+			TimeoutSeconds = 5.0,
+			SearchRegion = BottomHalf,
+			FallbackPoint = new RatioPoint(0.565, 0.91),
 			StandardDelayAfterSeconds = 0.2
 		},
 		new FlowStep

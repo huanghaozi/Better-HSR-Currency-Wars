@@ -141,7 +141,7 @@ public partial class MainWindow : Window, IComponentConnector
 		InitializeComponent();
 		if (App.IsChildSessionInstance)
 		{
-			Title = "Better HSR-Currency Wars V13.42（桌面分身）";
+			Title = "Better HSR-Currency Wars V13.43（桌面分身）";
 			DesktopCloneButton.IsEnabled = false;
 			DesktopCloneButton.Content = "当前位于桌面分身";
 		}
@@ -1868,10 +1868,7 @@ public partial class MainWindow : Window, IComponentConnector
 		await RunIndependentOuterFlowBeforeInvestmentAsync(cancellationToken);
 		await DelayWithCancellationAsync(0.4, cancellationToken);
 		RefreshGameWindowForIndependentStep();
-		await ClickRatioPointAsync(new RatioPoint(0.565, 0.91), "自动刷周常积分：固定确认", cancellationToken);
-		await DelayWithCancellationAsync(0.2, cancellationToken);
-		AppendLog("自动刷周常积分：固定确认完成，执行旧版蓝海二段点位 2 轮兜底。");
-		await ClickBlueOceanFollowupGuardAsync(cancellationToken);
+		await ClickInvestmentConfirmAsync("自动刷周常积分", cancellationToken);
 		await WaitForOpeningBoardReadyAsync("自动刷周常积分", InGameOpeningFlow.OpeningBoardPostDetectionWaitSeconds, cancellationToken);
 		await DeployOpeningCharactersAsync(cancellationToken);
 		await TryHandleGalaStarChoiceAsync(cancellationToken);
@@ -2121,10 +2118,7 @@ public partial class MainWindow : Window, IComponentConnector
 			bool allowExtraStrategyRefresh = IsExtraStrategyRefreshInvestment(investmentHit);
 			await DelayWithCancellationAsync(0.4, cancellationToken);
 			RefreshGameWindowForIndependentStep();
-			await ClickRatioPointAsync(new RatioPoint(0.565, 0.91), "局外+局内：固定确认", cancellationToken);
-			await DelayWithCancellationAsync(0.2, cancellationToken);
-			AppendLog("局外+局内：固定确认完成，执行旧版蓝海二段点位 2 轮兜底。");
-			await ClickBlueOceanFollowupGuardAsync(cancellationToken);
+			await ClickInvestmentConfirmAsync("局外+局内", cancellationToken);
 			if (gateHit)
 			{
 				AppendLog("局外+局内：投资条件允许，进入局内棋盘和策略识别。");
@@ -2205,10 +2199,7 @@ public partial class MainWindow : Window, IComponentConnector
 			bool allowExtraStrategyRefresh = IsExtraStrategyRefreshInvestment(investmentGateHit);
 			await DelayWithCancellationAsync(0.4, cancellationToken);
 			RefreshGameWindowForIndependentStep();
-			await ClickRatioPointAsync(new RatioPoint(0.565, 0.91), "独立局内预设：固定确认", cancellationToken);
-			await DelayWithCancellationAsync(0.2, cancellationToken);
-			AppendLog("独立局内预设：固定确认完成，执行旧版蓝海二段点位 2 轮兜底。");
-			await ClickBlueOceanFollowupGuardAsync(cancellationToken);
+			await ClickInvestmentConfirmAsync("独立局内预设", cancellationToken);
 			if (gateHit)
 			{
 				AppendLog("独立局内预设：投资门槛命中，识别局内棋盘后进入 1-1 / 1-2。");
@@ -2306,7 +2297,6 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private async Task EnsureReturnedToCurrencyWarsAsync(string scope, CancellationToken cancellationToken)
 	{
-		string[] homeAliases = new string[1] { "开始货币战争" };
 		string[] staleProgressAliases = new string[3] { "当前进度", "继续进度", "结束并结算" };
 		DateTime deadline = DateTime.UtcNow.AddSeconds(4.0);
 		string lastText = "";
@@ -2315,9 +2305,12 @@ public partial class MainWindow : Window, IComponentConnector
 			cancellationToken.ThrowIfCancellationRequested();
 			OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.FullWindow, cancellationToken);
 			lastText = scan.RawText;
-			if ((object)OcrClickResolver.FindBest(scan, homeAliases, _config.ButtonFuzzyScore) != null)
+			// 用状态机判断是否真的回到了首页，比只找单个文字锚点更可靠。
+			PageStateMatch match = PageStateDetector.Detect(scan, _config.ButtonFuzzyScore);
+			_currentState = match.State;
+			if (match.State == PageState.Home)
 			{
-				AppendLog(scope + "：固定连点后已确认返回货币战争首页。");
+				AppendLog(scope + "：已确认返回货币战争首页（状态识别得分 " + match.Score + "）。");
 				return;
 			}
 			if ((object)OcrClickResolver.FindBest(scan, staleProgressAliases, _config.ButtonFuzzyScore) != null)
@@ -2326,7 +2319,7 @@ public partial class MainWindow : Window, IComponentConnector
 			}
 			await DelayWithCancellationAsync(0.3, cancellationToken);
 		}
-		throw new InvalidOperationException("固定连点后未能确认返回货币战争首页。已阻止开始下一轮。最后 OCR：" + ShortText(lastText));
+		throw new InvalidOperationException("固定连点后未能确认返回货币战争首页（最后识别为 " + PageStateDetector.GetDisplayName(_currentState) + "）。已阻止开始下一轮。最后 OCR：" + ShortText(lastText));
 	}
 
 	private async Task<string?> ExecuteIndependentInvestmentGateAsync(IReadOnlyList<string> investmentGateAliases, CancellationToken cancellationToken)
@@ -3203,6 +3196,10 @@ public partial class MainWindow : Window, IComponentConnector
 		{
 		case FlowStepKind.ClickText:
 			await ExecuteClickTextStepAsync(step, cancellationToken);
+			if (string.Equals(step.Name, "固定确认", StringComparison.Ordinal))
+			{
+				await HandleInvestmentConfirmFollowupAsync("自动流程", cancellationToken);
+			}
 			if (step.CheckDebuffAfterStep && _config.DebuffEnabled)
 			{
 				await DelayWithCancellationAsync(0.6, cancellationToken);
@@ -3211,11 +3208,6 @@ public partial class MainWindow : Window, IComponentConnector
 			break;
 		case FlowStepKind.ClickRelativePoint:
 			await ClickRatioPointAsync(step.ClickPoint ?? new RatioPoint(0.5, 0.5), step.Name, cancellationToken);
-			if (string.Equals(step.Name, "固定确认", StringComparison.Ordinal))
-			{
-				AppendLog("自动流程：固定确认完成，执行旧版蓝海二段点位 2 轮兜底。");
-				await ClickBlueOceanFollowupGuardAsync(cancellationToken);
-			}
 			break;
 		case FlowStepKind.SafeInvestmentChoice:
 			await ClickSafeInvestmentAsync(rememberChoice: true, useConfiguredInvestmentTargetsForBlacklist: false, cancellationToken);
@@ -3299,17 +3291,6 @@ public partial class MainWindow : Window, IComponentConnector
 		if (!useBottomReturnPoint && step.SearchRegion != CurrencyWarsFlow.FullWindow)
 		{
 			await WaitForStableAsync("自动流程：" + step.Name + " 执行前", 2.5, cancellationToken);
-		}
-		if (step.PreferFixedPoint && (object)step.FallbackPoint != null)
-		{
-			// OCR 容易把页面上的其他同名字样误判成按钮，先直接用固定坐标点击并验证页面切换。
-			AppendLog("自动流程：" + step.Name + " 优先使用固定坐标点击，跳过 OCR 重试。");
-			if (await ClickFixedPointUntilPageChangesAsync(step.Name + " 固定坐标", step.FallbackPoint, step.Aliases, step.SearchRegion, cancellationToken))
-			{
-				SetStatus("状态：已点击 " + step.Name);
-				return;
-			}
-			AppendLog("自动流程：" + step.Name + " 固定坐标点击后页面未切换，回退 OCR 识别。");
 		}
 		while (DateTime.UtcNow < deadline)
 		{
@@ -3726,25 +3707,117 @@ public partial class MainWindow : Window, IComponentConnector
 		}
 		int? uncollectedColumn = FindUncollectedInvestmentColumn(blockedColumns, cancellationToken);
 		int chosenIndex = uncollectedColumn ?? ChooseSafeInvestmentIndex(blockedColumns);
-		RatioPoint point = CurrencyWarsFlow.InvestmentFallbackPoints[chosenIndex];
 		if (rememberChoice)
 		{
-			_lastSafeInvestmentPoint = point;
+			_lastSafeInvestmentPoint = CurrencyWarsFlow.InvestmentFallbackPoints[chosenIndex];
 		}
 		string reason = (uncollectedColumn.HasValue ? $"图鉴未收录投资 {chosenIndex + 1}" : "默认安全投资");
-		await ClickRatioPointAsync(point, reason, cancellationToken);
+		await ClickInvestmentCardAsync(chosenIndex, reason, cancellationToken);
 	}
 
-	private async Task ClickBlueOceanFollowupGuardAsync(CancellationToken cancellationToken)
+	/// <summary>
+	/// 点击投资卡片：优先用 OCR 找到卡片内的标题文字并点击其中心，
+	/// 识别不到标题时才退回该列的固定坐标（卡片是图片布局，固定坐标仅作兜底）。
+	/// </summary>
+	private async Task ClickInvestmentCardAsync(int column, string reason, CancellationToken cancellationToken)
 	{
-		await DelayWithCancellationAsync(0.3, cancellationToken);
-		for (int i = 0; i < 2; i++)
+		if (column >= 0 && column < CurrencyWarsFlow.InvestmentCardSearchRegions.Length)
 		{
-			await ClickRatioPointAsync(new RatioPoint(0.52, 0.49), $"蓝海二次投资中间选项兜底 {i + 1}/2", cancellationToken);
-			await DelayWithCancellationAsync(0.1, cancellationToken);
-			await ClickRatioPointAsync(new RatioPoint(0.565, 0.91), $"蓝海二次投资确认兜底 {i + 1}/2", cancellationToken);
-			await DelayWithCancellationAsync(0.1, cancellationToken);
+			RatioRegion region = CurrencyWarsFlow.InvestmentCardSearchRegions[column];
+			OcrScanResult scan = await CaptureAndOcrAsync(region, cancellationToken);
+			WindowClientRect? captured = _latestCaptureScreenRegion;
+			// 卡片标题位于卡片上半部分，取区域内最靠上的文本块作为标题。
+			OcrTextItem? title = captured == null
+				? null
+				: scan.Items
+					.Where(item => !string.IsNullOrWhiteSpace(item.Text) && item.Bounds.Y < captured.Height * 0.5)
+					.OrderBy(item => item.Bounds.Y)
+					.FirstOrDefault();
+			if (title != null && captured != null)
+			{
+				Rect bounds = title.Bounds;
+				await ExecuteClickAsync(new ClickRequest($"{reason}（OCR 定位：{title.Text}）",
+					captured.Left + (int)Math.Round(bounds.X + bounds.Width / 2.0),
+					captured.Top + (int)Math.Round(bounds.Y + bounds.Height / 2.0)));
+				AppendLog($"默认投资选择：已按 OCR 标题「{title.Text}」点击第 {column + 1} 张卡片。");
+				return;
+			}
+			AppendLog($"默认投资选择：第 {column + 1} 张卡片未识别到标题文字，使用固定坐标。");
 		}
+		await ClickRatioPointAsync(CurrencyWarsFlow.InvestmentFallbackPoints[column], reason, cancellationToken);
+	}
+
+	/// <summary>
+	/// 投资确认：优先 OCR 找「确认/确定」按钮点击，识别不到时才用固定坐标。
+	/// 点击后按页面状态判断是否需要处理二次投资界面。
+	/// </summary>
+	private async Task ClickInvestmentConfirmAsync(string scope, CancellationToken cancellationToken)
+	{
+		await WaitForStableAsync(scope + "：投资确认前", 2.5, cancellationToken);
+		OcrClickCandidate? confirm = null;
+		DateTime deadline = DateTime.UtcNow.AddSeconds(4.0);
+		while (DateTime.UtcNow < deadline && confirm == null)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			OcrScanResult scan = await CaptureAndOcrAsync(CurrencyWarsFlow.BottomHalf, cancellationToken);
+			confirm = OcrClickResolver.FindBest(scan, new _003C_003Ez__ReadOnlyArray<string>(new string[2] { "确认", "确定" }), _config.ButtonFuzzyScore);
+			if (confirm == null)
+			{
+				await DelayWithCancellationAsync(0.2, cancellationToken);
+			}
+		}
+		if (confirm != null && _latestCaptureScreenRegion != null)
+		{
+			Rect bounds = confirm.Item.Bounds;
+			await ExecuteClickAsync(new ClickRequest($"{scope}：{confirm.Item.Text}",
+				_latestCaptureScreenRegion.Left + (int)Math.Round(bounds.X + bounds.Width / 2.0),
+				_latestCaptureScreenRegion.Top + (int)Math.Round(bounds.Y + bounds.Height / 2.0)));
+			AppendLog($"{scope}：已识别并点击「{confirm.Item.Text}」。");
+		}
+		else
+		{
+			AppendLog($"{scope}：4 秒内未识别到确认按钮，使用固定坐标点击。");
+			await ClickRatioPointAsync(new RatioPoint(0.565, 0.91), scope + " 固定确认", cancellationToken);
+		}
+		await HandleInvestmentConfirmFollowupAsync(scope, cancellationToken);
+	}
+
+	/// <summary>
+	/// 投资确认后的收尾处理。
+	/// 原先无论是否需要都盲点 2 轮固定坐标（蓝海二段兜底），容易在正常流程里点错位置。
+	/// 现在改为先识别页面状态：仍停留在投资环境才需要处理二次投资，否则直接返回。
+	/// </summary>
+	private async Task HandleInvestmentConfirmFollowupAsync(string scope, CancellationToken cancellationToken)
+	{
+		await DelayWithCancellationAsync(0.8, cancellationToken);
+		PageStateMatch state = await CaptureAndDetectStateAsync(scope + "：投资确认后", cancellationToken);
+		if (state.State != PageState.InvestmentEnv)
+		{
+			AppendLog($"{scope}：投资确认后已离开投资环境（当前 {state.DisplayName}），无需二次投资处理。");
+			return;
+		}
+		AppendLog($"{scope}：投资确认后仍停留在投资环境，检测到二次投资界面，重新识别并确认。");
+		// 二次投资界面仍是一个可选卡片 + 确认按钮的布局，复用同样的 OCR 识别逻辑。
+		string? hit = await TryClickInvestmentTargetAsync(scope + "：二次投资识别", cancellationToken, logRawText: true);
+		if (hit == null)
+		{
+			await ClickSafeInvestmentAsync(rememberChoice: false, useConfiguredInvestmentTargetsForBlacklist: true, cancellationToken);
+		}
+		OcrClickCandidate? confirm = OcrClickResolver.FindBest(
+			await CaptureAndOcrAsync(CurrencyWarsFlow.BottomHalf, cancellationToken),
+			new _003C_003Ez__ReadOnlyArray<string>(new string[2] { "确认", "确定" }),
+			_config.ButtonFuzzyScore);
+		if (confirm != null && _latestCaptureScreenRegion != null)
+		{
+			Rect bounds = confirm.Item.Bounds;
+			await ExecuteClickAsync(new ClickRequest($"{scope}：二次投资确认 {confirm.Item.Text}",
+				_latestCaptureScreenRegion.Left + (int)Math.Round(bounds.X + bounds.Width / 2.0),
+				_latestCaptureScreenRegion.Top + (int)Math.Round(bounds.Y + bounds.Height / 2.0)));
+			AppendLog($"{scope}：二次投资已确认。");
+			return;
+		}
+		AppendLog($"{scope}：二次投资未识别到确认按钮，使用固定坐标确认。");
+		await ClickRatioPointAsync(new RatioPoint(0.565, 0.91), scope + " 二次投资固定确认", cancellationToken);
 	}
 
 	private int? FindUncollectedInvestmentColumn(HashSet<int> blockedColumns, CancellationToken cancellationToken)
@@ -3887,12 +3960,14 @@ public partial class MainWindow : Window, IComponentConnector
 				await DelayWithCancellationAsync(0.5, cancellationToken);
 				continue;
 			}
-			OcrClickCandidate candidate = OcrClickResolver.FindBest(scan, InGameOpeningFlow.OpeningBoardScreenAliases, _config.ButtonFuzzyScore);
-			if ((object)candidate != null)
+			// 用状态机判断是否已进入局内棋盘或策略选择页。
+			PageStateMatch match = PageStateDetector.Detect(scan, _config.ButtonFuzzyScore);
+			_currentState = match.State;
+			if (match.State == PageState.OpeningBoard || match.State == PageState.StrategySelect)
 			{
 				if (postDetectionWaitSeconds > 0.0)
 				{
-					AppendLog($"{scope}：局内棋盘/备战页已识别：{candidate.Item.Text}（匹配 {candidate.Alias}），识别后再等待 {postDetectionWaitSeconds:0.0} 秒加载拖拽区域。");
+					AppendLog($"{scope}：已识别 {match.DisplayName}（得分 {match.Score}），识别后再等待 {postDetectionWaitSeconds:0.0} 秒加载拖拽区域。");
 					await DelayWithCancellationAsync(postDetectionWaitSeconds, cancellationToken);
 				}
 				double totalWait = (DateTime.UtcNow - startedAt).TotalSeconds;
@@ -3901,7 +3976,7 @@ public partial class MainWindow : Window, IComponentConnector
 			}
 			await DelayWithCancellationAsync(CurrencyWarsFlow.MajorPageScanIntervalSeconds, cancellationToken);
 		}
-		AppendLog(scope + "：局内棋盘/备战页等待超时，继续原兜底流程。最后 OCR：" + ShortText(lastText));
+		AppendLog(scope + "：局内棋盘/备战页等待超时，最后识别为「" + PageStateDetector.GetDisplayName(_currentState) + "」。最后 OCR：" + ShortText(lastText));
 		return false;
 	}
 
