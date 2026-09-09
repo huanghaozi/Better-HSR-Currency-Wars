@@ -1,7 +1,7 @@
 {
-  "version": "13.1.0",
-  "title": "Better HSR-Currency Wars V13.1",
-  "notes": "美化桌面分身窗口；更新检查改为优先使用 Mirror酱并在失败时回退 GitHub；新增 Mirror酱 CDK 输入与保存；移除腾讯云 COS；保留 GitHub Velopack 增量更新与百度网盘完整修复入口。",
+  "version": "13.41.0",
+  "title": "Better HSR-Currency Wars V13.41",
+  "notes": "新增游戏画面区域识别，自动识别云游戏客户端标题栏与画面黑边；修复云游戏窗口下点击左上角退出按钮失效的问题；新增画面内缩手动校准与诊断按钮；补回桌面分身相关运行时代码。",
   "releasePageUrl": "https://github.com/439awsl-hue/Better-HSR-Currency-Wars/releases/latest",
   "downloadUrl": "https://github.com/439awsl-hue/Better-HSR-Currency-Wars/releases/latest"
 }

@@ -143,7 +143,7 @@ public partial class MainWindow : Window, IComponentConnector
 		InitializeComponent();
 		if (App.IsChildSessionInstance)
 		{
-			Title = "Better HSR-Currency Wars V13.1（桌面分身）";
+			Title = "Better HSR-Currency Wars V13.41（桌面分身）";
 			DesktopCloneButton.IsEnabled = false;
 			DesktopCloneButton.Content = "当前位于桌面分身";
 		}

@@ -2,10 +2,16 @@ namespace HsrCurrencyWarsCleanWpf.Core;
 
 public static class ReleaseNotes
 {
-	public const string CurrentVersion = "13.1.0";
+	public const string CurrentVersion = "13.41.0";
 
 	public const string StartupText =
 		"""
+		V13.41 更新内容
+		新增游戏画面区域识别：自动识别云游戏客户端标题栏与画面黑边
+		修复云游戏窗口下点击左上角退出按钮失效的问题
+		新增游戏画面内缩手动校准与画面区域诊断按钮
+		补回桌面分身相关的 RdpActiveXHost 与 Child Session 运行时代码
+
 		V13.1 更新内容
 		美化桌面分身窗口：重新设计标题、连接状态、操作按钮与分身画面区域
 		桌面分身继续支持关闭窗口时自动注销，避免残留会话影响主桌面启动游戏
