@@ -6,4 +6,5 @@ obj/
 config.json
 artifacts/
 VelopackReleases/
+OCRRuntime/rapidocr_bridge/
 
