@@ -3155,6 +3155,12 @@ public partial class MainWindow : Window, IComponentConnector
 			_blockedHitThisCycle = false;
 			_outerOpeningRapidAdvanceCompleted = false;
 			_outerBottomReturnRapidSequenceCompleted = false;
+			// 每轮开始记录一次页面状态快照，便于排查"当前到底在哪一页"。
+			PageStateMatch startState = await CaptureAndDetectStateAsync("自动流程：轮次开始", cancellationToken);
+			if (startState.State != PageState.Home)
+			{
+				AppendLog($"自动流程：轮次开始时不在首页，实际识别为「{startState.DisplayName}」；仍按首页流程继续尝试。");
+			}
 		}
 		if ((object)_gameWindow == null && !TryFindWindow())
 		{
