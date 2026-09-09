@@ -91,6 +91,10 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private WindowClientRect? _latestCaptureScreenRegion;
 
+	private GameContentInsets _detectedGameContentInsets = GameContentInsets.None;
+
+	private string _lastGameContentDetectionText = "尚未检测游戏画面区域。";
+
 	private OcrScanResult? _latestOcrResult;
 
 	private CaptureRegion _latestPreviewRegion = CaptureRegion.FullWindow;
@@ -540,6 +544,19 @@ public partial class MainWindow : Window, IComponentConnector
 			.ToList();
 	}
 
+	/// <summary>
+	/// 返回客户区已替换为真实游戏画面区域的窗口信息。
+	/// 截图与坐标换算必须使用同一个矩形，否则 OCR 命中框与实际点击位置会错位。
+	/// </summary>
+	private GameWindowInfo GetGameContentWindow()
+	{
+		if (_gameWindow == null)
+		{
+			throw new InvalidOperationException("没有可用的游戏窗口。");
+		}
+		return new GameWindowInfo(_gameWindow.Handle, _gameWindow.Title, ResolveGameContentRect());
+	}
+
 	private async Task<bool> TryClickGameSettingsGearAsync(CancellationToken cancellationToken)
 	{
 		if (_gameWindow == null)
@@ -547,8 +564,9 @@ public partial class MainWindow : Window, IComponentConnector
 			return false;
 		}
 		CaptureRegion region = new CaptureRegion("游戏菜单右侧四分之一区域", GameMenuRightQuarterRegion.X, GameMenuRightQuarterRegion.Y, GameMenuRightQuarterRegion.Width, GameMenuRightQuarterRegion.Height);
-		WindowClientRect resolved = _windowCapture.ResolveRegion(_gameWindow.ClientRect, region);
-		BitmapSource screenshot = _windowCapture.Capture(_gameWindow, region);
+		GameWindowInfo contentWindow = GetGameContentWindow();
+		WindowClientRect resolved = _windowCapture.ResolveRegion(contentWindow.ClientRect, region);
+		BitmapSource screenshot = _windowCapture.Capture(contentWindow, region);
 		GameSettingsGearDetectionResult detection = GameSettingsGearDetector.Detect(screenshot);
 		AppendLog($"游戏窗口优化：设置齿轮识图最高相似度 {detection.Similarity:0.000}，阈值 0.650。");
 		if (!detection.Found)
@@ -616,7 +634,7 @@ public partial class MainWindow : Window, IComponentConnector
 			{
 				break;
 			}
-			WindowClientRect rect = _gameWindow.ClientRect;
+			WindowClientRect rect = ResolveGameContentRect();
 			int scrollX = rect.Left + (int)Math.Round(rect.Width * 0.84);
 			int scrollY = rect.Top + (int)Math.Round(rect.Height * 0.43);
 			AppendLog($"游戏窗口优化：未找到目标，执行第 {scanIndex + 1}/{maximumScrollCount} 次向下滚动，随后停下重新检测。");
@@ -1055,6 +1073,13 @@ public partial class MainWindow : Window, IComponentConnector
 	{
 		_config = _configStore.Load();
 		WindowTitleBox.Text = _config.WindowTitle;
+		AutoDetectGameContentCheckBox.IsChecked = _config.AutoDetectGameContent;
+		GameContentLeftBox.Text = FormatInsetPercent(_config.GameContentInsetLeft);
+		GameContentTopBox.Text = FormatInsetPercent(_config.GameContentInsetTop);
+		GameContentRightBox.Text = FormatInsetPercent(_config.GameContentInsetRight);
+		GameContentBottomBox.Text = FormatInsetPercent(_config.GameContentInsetBottom);
+		UpdateGameContentInputsEnabled();
+		UpdateGameContentHint();
 		DebuffEnabledBox.IsChecked = _config.DebuffEnabled;
 		DebuffMatchAnyBox.IsChecked = _config.DebuffMatchAny;
 		SetListBoxItems(TargetWordsListBox, _config.TargetWords);
@@ -1086,6 +1111,11 @@ public partial class MainWindow : Window, IComponentConnector
 	private void ReadUiToConfig()
 	{
 		_config.WindowTitle = WindowTitleBox.Text.Trim();
+		_config.AutoDetectGameContent = AutoDetectGameContentCheckBox.IsChecked == true;
+		_config.GameContentInsetLeft = ParseInsetPercent(GameContentLeftBox.Text);
+		_config.GameContentInsetTop = ParseInsetPercent(GameContentTopBox.Text);
+		_config.GameContentInsetRight = ParseInsetPercent(GameContentRightBox.Text);
+		_config.GameContentInsetBottom = ParseInsetPercent(GameContentBottomBox.Text);
 		_config.DebuffEnabled = DebuffEnabledBox.IsChecked == true;
 		_config.DebuffMatchAny = DebuffMatchAnyBox.IsChecked == true;
 		_config.TargetWords = ReadWords(TargetWordsListBox);
@@ -1338,6 +1368,7 @@ public partial class MainWindow : Window, IComponentConnector
 			WindowInfoText.Text = $"窗口：{_gameWindow.Title}  client={rect.Width}x{rect.Height}  left={rect.Left}, top={rect.Top}  {display}";
 			SetStatus("状态：已找到窗口");
 			AppendLog($"找到窗口：{_gameWindow.Title}，client={rect.Width}x{rect.Height}，left={rect.Left}, top={rect.Top}；{display}");
+			DetectGameContentArea();
 			return true;
 		}
 		catch (Exception ex)
@@ -1360,6 +1391,10 @@ public partial class MainWindow : Window, IComponentConnector
 			string display = _windowCapture.DescribeDisplay(_gameWindow);
 			WindowInfoText.Text = $"窗口：{_gameWindow.Title}  client={rect.Width}x{rect.Height}  left={rect.Left}, top={rect.Top}  {display}";
 			AppendLog($"独立局内预设：已刷新窗口位置，client={rect.Width}x{rect.Height}，left={rect.Left}, top={rect.Top}；{display}。");
+			if (_config.AutoDetectGameContent)
+			{
+				DetectGameContentArea();
+			}
 			await DelayWithCancellationAsync(0.3, cancellationToken);
 		}
 		catch (Exception ex)
@@ -1382,8 +1417,8 @@ public partial class MainWindow : Window, IComponentConnector
 			if ((object)_gameWindow != null || TryFindWindow())
 			{
 				_gameWindow = _windowCapture.FindWindow(_config.WindowTitle);
-				WindowClientRect resolved = _windowCapture.ResolveRegion(_gameWindow.ClientRect, region);
-				BitmapSource image = (_latestPreviewImage = _windowCapture.Capture(_gameWindow, region));
+				WindowClientRect resolved = _windowCapture.ResolveRegion(ResolveGameContentRect(), region);
+				BitmapSource image = (_latestPreviewImage = _windowCapture.Capture(GetGameContentWindow(), region));
 				_latestCaptureScreenRegion = resolved;
 				_latestOcrResult = null;
 				_latestPreviewRegion = region;
@@ -1509,9 +1544,161 @@ public partial class MainWindow : Window, IComponentConnector
 			throw new InvalidOperationException("没有可用的游戏窗口。");
 		}
 		_gameWindow = _windowCapture.FindWindow(_config.WindowTitle);
-		WindowClientRect rect = _gameWindow.ClientRect;
+		WindowClientRect rect = ResolveGameContentRect();
 		DragRequest request = new DragRequest(reason, rect.Left + (int)Math.Round((double)rect.Width * start.X), rect.Top + (int)Math.Round((double)rect.Height * start.Y), rect.Left + (int)Math.Round((double)rect.Width * end.X), rect.Top + (int)Math.Round((double)rect.Height * end.Y));
 		AppendLog((await _clickService.DragAsync(request, _gameWindow.Handle, cancellationToken)).Message);
+	}
+
+	/// <summary>
+	/// 计算真实游戏画面在屏幕上的矩形。
+	/// 云游戏客户端会把标题栏和导航栏画在客户区内部，若直接按客户区比例换算，
+	/// 左上角附近的坐标会落到客户端 UI 上，导致点击和 OCR 全部偏移。
+	/// 这里先应用用户配置或自动检测得到的内缩，再返回画面矩形。
+	/// </summary>
+	private WindowClientRect ResolveGameContentRect()
+	{
+		if (_gameWindow == null)
+		{
+			throw new InvalidOperationException("没有可用的游戏窗口。");
+		}
+		GameContentInsets insets = _config.AutoDetectGameContent
+			? _detectedGameContentInsets
+			: new GameContentInsets(_config.GameContentInsetLeft, _config.GameContentInsetTop, _config.GameContentInsetRight, _config.GameContentInsetBottom);
+		return insets.Apply(_gameWindow.ClientRect);
+	}
+
+	/// <summary>
+	/// 截取整个客户区并推断真实游戏画面区域，结果缓存到 <see cref="_detectedGameContentInsets"/>。
+	/// 云游戏客户端标题栏常驻时会占掉客户区顶部，导致左上角比例坐标落到客户端 UI 上。
+	/// </summary>
+	private void DetectGameContentArea()
+	{
+		if (_gameWindow == null)
+		{
+			return;
+		}
+		try
+		{
+			BitmapSource screenshot = _windowCapture.Capture(_gameWindow, CaptureRegion.FullWindow);
+			GameContentDetectionResult result = GameContentDetector.Detect(screenshot);
+			_detectedGameContentInsets = result.Detected ? result.SuggestedInsets : GameContentInsets.None;
+			_lastGameContentDetectionText = result.Description;
+			AppendLog("游戏画面区域检测：" + result.Description);
+			if (_config.AutoDetectGameContent)
+			{
+				WindowClientRect content = _detectedGameContentInsets.Apply(_gameWindow.ClientRect);
+				AppendLog($"游戏画面区域检测：点击与 OCR 将基于 {content.Width}x{content.Height}（left={content.Left}, top={content.Top}）。");
+			}
+			else
+			{
+				AppendLog("游戏画面区域检测：当前使用手动配置的内缩值。");
+			}
+			UpdateGameContentHint();
+		}
+		catch (Exception ex)
+		{
+			_detectedGameContentInsets = GameContentInsets.None;
+			_lastGameContentDetectionText = "检测失败：" + ex.Message;
+			AppendLog("游戏画面区域检测失败，按整个客户区计算：" + ex.Message);
+			UpdateGameContentHint();
+		}
+	}
+
+	private void UpdateGameContentHint()
+	{
+		if (GameContentHintText == null)
+		{
+			return;
+		}
+		string mode = _config.AutoDetectGameContent ? "自动" : "手动";
+		GameContentInsets active = _config.AutoDetectGameContent
+			? _detectedGameContentInsets
+			: new GameContentInsets(_config.GameContentInsetLeft, _config.GameContentInsetTop, _config.GameContentInsetRight, _config.GameContentInsetBottom);
+		GameContentHintText.Text = $"游戏画面内缩（{mode}）：左 {active.Left:P1}  上 {active.Top:P1}  右 {active.Right:P1}  下 {active.Bottom:P1}";
+	}
+
+	private void UpdateGameContentInputsEnabled()
+	{
+		bool manual = AutoDetectGameContentCheckBox.IsChecked != true;
+		GameContentLeftBox.IsEnabled = manual;
+		GameContentTopBox.IsEnabled = manual;
+		GameContentRightBox.IsEnabled = manual;
+		GameContentBottomBox.IsEnabled = manual;
+	}
+
+	private void GameContentSetting_Changed(object sender, RoutedEventArgs e)
+	{
+		if (!base.IsLoaded)
+		{
+			return;
+		}
+		UpdateGameContentInputsEnabled();
+		SaveConfigFromUi("游戏画面检测方式已更新。");
+		UpdateGameContentHint();
+	}
+
+	private void GameContentInset_LostFocus(object sender, RoutedEventArgs e)
+	{
+		if (!base.IsLoaded)
+		{
+			return;
+		}
+		SaveConfigFromUi("游戏画面内缩已更新。");
+		UpdateGameContentHint();
+	}
+
+	/// <summary>
+	/// 截取整个客户区并输出检测细节，方便用户对着云客户端确认内缩值是否正确。
+	/// </summary>
+	private void DiagnoseGameContent_Click(object sender, RoutedEventArgs e)
+	{
+		try
+		{
+			if (!TryFindWindow() || _gameWindow == null)
+			{
+				return;
+			}
+			BitmapSource screenshot = _windowCapture.Capture(_gameWindow, CaptureRegion.FullWindow);
+			GameContentDetectionResult result = GameContentDetector.Detect(screenshot);
+			WindowClientRect client = _gameWindow.ClientRect;
+			WindowClientRect content = result.SuggestedInsets.Apply(client);
+			PreviewImage.Source = screenshot;
+			PreviewPlaceholder.Visibility = Visibility.Collapsed;
+			_latestPreviewImage = screenshot;
+			_latestOcrResult = null;
+			AppendLog($"画面区域诊断：客户区 {client.Width}x{client.Height}，left={client.Left}, top={client.Top}。");
+			AppendLog("画面区域诊断：" + result.Description);
+			AppendLog($"画面区域诊断：推断游戏画面 {content.Width}x{content.Height}，left={content.Left}, top={content.Top}，宽高比 {(double)content.Width / Math.Max(1, content.Height):0.000}。");
+			AppendLog($"画面区域诊断：按当前设置，实际使用 {ResolveGameContentRect().DescribeRect()}");
+			SetStatus("状态：画面区域诊断完成");
+			MessageBox.Show(this,
+				result.Description + "\n\n" +
+				$"客户区：{client.Width}x{client.Height}\n" +
+				$"推断游戏画面：{content.Width}x{content.Height}（left={content.Left}, top={content.Top}）\n" +
+				$"当前实际使用：{ResolveGameContentRect().DescribeRect()}\n\n" +
+				"如果云客户端顶部有标题栏但这里显示内缩为 0，请取消勾选“自动检测游戏画面”，\n" +
+				"然后手动填写上边框比例（例如标题栏占 6% 就填 6）。",
+				"画面区域诊断", MessageBoxButton.OK, MessageBoxImage.Information);
+		}
+		catch (Exception ex)
+		{
+			AppendLog("画面区域诊断失败：" + ex.Message);
+			MessageBox.Show(this, ex.Message, "画面区域诊断失败", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+		}
+	}
+
+	private static string FormatInsetPercent(double value)
+	{
+		return (Math.Clamp(value, 0.0, 0.45) * 100.0).ToString("0.#");
+	}
+
+	private static double ParseInsetPercent(string? text)
+	{
+		if (double.TryParse(text?.Trim().TrimEnd('%'), out double percent))
+		{
+			return Math.Clamp(percent / 100.0, 0.0, 0.45);
+		}
+		return 0.0;
 	}
 
 	private void SetAutomationButtonsEnabled(bool enabled)
@@ -2294,7 +2481,7 @@ public partial class MainWindow : Window, IComponentConnector
 		{
 			return false;
 		}
-		WindowClientRect client = _gameWindow.ClientRect;
+		WindowClientRect client = ResolveGameContentRect();
 		Rect bounds = candidate.Item.Bounds;
 		double centerX = (double)_latestCaptureScreenRegion.Left + bounds.X + bounds.Width / 2.0;
 		double num = (double)_latestCaptureScreenRegion.Top + bounds.Y + bounds.Height / 2.0;
@@ -2433,7 +2620,7 @@ public partial class MainWindow : Window, IComponentConnector
 		{
 			throw new InvalidOperationException("没有可用的游戏窗口。");
 		}
-		WindowClientRect rect = _gameWindow.ClientRect;
+		WindowClientRect rect = ResolveGameContentRect();
 		ClickRequest request = new ClickRequest(reason, rect.Left + (int)Math.Round((double)rect.Width * point.X), rect.Top + (int)Math.Round((double)rect.Height * point.Y));
 		await ExecuteRepeatedClickAsync(request, count, intervalSeconds, cancellationToken);
 	}
@@ -3524,7 +3711,7 @@ public partial class MainWindow : Window, IComponentConnector
 		{
 			throw new InvalidOperationException("没有可用的游戏窗口。");
 		}
-		WindowClientRect rect = _gameWindow.ClientRect;
+		WindowClientRect rect = ResolveGameContentRect();
 		ClickRequest request = new ClickRequest(reason, rect.Left + (int)Math.Round((double)rect.Width * point.X), rect.Top + (int)Math.Round((double)rect.Height * point.Y));
 		await ExecuteClickAsync(request);
 	}
@@ -3600,7 +3787,7 @@ public partial class MainWindow : Window, IComponentConnector
 			throw new InvalidOperationException("没有可用的游戏窗口。");
 		}
 		CaptureRegion captureRegion = new CaptureRegion("自动流程区域", region.X, region.Y, region.Width, region.Height);
-		WindowClientRect resolved = _windowCapture.ResolveRegion(_gameWindow.ClientRect, captureRegion);
+		WindowClientRect resolved = _windowCapture.ResolveRegion(ResolveGameContentRect(), captureRegion);
 		BitmapSource image = (_latestPreviewImage = _windowCapture.Capture(_gameWindow, captureRegion));
 		_latestCaptureScreenRegion = resolved;
 		_latestPreviewRegion = captureRegion;

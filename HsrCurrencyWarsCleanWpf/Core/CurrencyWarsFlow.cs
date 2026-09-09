@@ -18,6 +18,12 @@ public static class CurrencyWarsFlow
 
 	public static readonly RatioPoint FastSettlementApproxPoint = new RatioPoint(0.39, 0.69);
 
+	/// <summary>结算确认弹窗中「放弃并结算」按钮所在的搜索区域。</summary>
+	public static readonly RatioRegion SettlementDialogButtonRegion = new RatioRegion(0.18, 0.55, 0.64, 0.30);
+
+	/// <summary>结算流程底部「下一步 / 下一页」按钮所在的搜索区域。</summary>
+	public static readonly RatioRegion BottomNextButtonRegion = new RatioRegion(0.6, 0.78, 0.4, 0.22);
+
 	public static readonly RatioPoint OpeningRapidAdvancePoint = new RatioPoint(1660.0 / 1920.0, 965.0 / 1080.0);
 
 	public const double OpeningRapidAdvanceDurationSeconds = 3.5;

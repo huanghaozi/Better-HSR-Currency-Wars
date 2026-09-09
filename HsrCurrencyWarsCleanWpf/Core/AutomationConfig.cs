@@ -18,6 +18,16 @@ public sealed class AutomationConfig
 
 	public string WindowTitle { get; set; } = "";
 
+	public bool AutoDetectGameContent { get; set; } = true;
+
+	public double GameContentInsetLeft { get; set; }
+
+	public double GameContentInsetTop { get; set; }
+
+	public double GameContentInsetRight { get; set; }
+
+	public double GameContentInsetBottom { get; set; }
+
 	public string HiddenReleaseNotesVersion { get; set; } = "";
 
 	public string MirrorChyanCdk { get; set; } = "";
@@ -111,6 +121,10 @@ public sealed class AutomationConfig
 	public void Normalize()
 	{
 		InvestmentEnabled = true;
+		GameContentInsetLeft = ClampInset(GameContentInsetLeft);
+		GameContentInsetTop = ClampInset(GameContentInsetTop);
+		GameContentInsetRight = ClampInset(GameContentInsetRight);
+		GameContentInsetBottom = ClampInset(GameContentInsetBottom);
 		FuzzyScore = Math.Max(FuzzyScore, 85);
 		BlockedFuzzyScore = Math.Max(BlockedFuzzyScore, 85);
 		if (!CombinedFlowRulesConfigured)
@@ -168,6 +182,16 @@ public sealed class AutomationConfig
 			select word.Trim() into word
 			where !string.IsNullOrWhiteSpace(word)
 			select word).Distinct<string>(StringComparer.Ordinal).Take(maxCount).ToList();
+	}
+
+	/// <summary>把画面内缩比例限制在 0 到 0.45 之间，避免配置错误把画面裁没。</summary>
+	private static double ClampInset(double value)
+	{
+		if (double.IsNaN(value))
+		{
+			return 0.0;
+		}
+		return Math.Clamp(value, 0.0, 0.45);
 	}
 
 	private static List<string> MergeHistory(params IEnumerable<string>[] wordLists)
